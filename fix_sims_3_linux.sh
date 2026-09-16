@@ -601,7 +601,14 @@ while true; do
                     for i in "${!ARCHIVOS_COMPRIMIDOS[@]}"; do
                         arch="${ARCHIVOS_COMPRIMIDOS[$i]}"
                         base_arch="$(basename "$arch")"
-                        
+
+                        # Ignorar archivos auxiliares especiales que se instalan por separado en su destino correcto
+                        case "$base_arch" in
+                            Mods.zip|*Parche*|*parche*|*Estabilidad*|*estabilidad*|*Worlds*|*worlds*)
+                                continue
+                                ;;
+                        esac
+
                         arch_code=$(echo "$base_arch" | grep -o -E '(EP[0-9]{2}|SP[0-9]{2})' | head -n1 | tr '[:lower:]' '[:upper:]')
                         
                         if [ -n "$arch_code" ] && [ -d "$SIMS_DIR/$arch_code" ] && [ "$(ls -A "$SIMS_DIR/$arch_code" 2>/dev/null)" ]; then
