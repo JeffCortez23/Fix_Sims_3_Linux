@@ -258,6 +258,29 @@ arreglar_estructura_dlcs_ts3() {
             rm -rf "$sub" 2>/dev/null || true
         fi
     done
+
+    # 2. Comprobar si el usuario descargó el parche de Isla Paradiso de Luva
+    local isla_zip
+    isla_zip=$(find "$HOME/Downloads" -maxdepth 2 -type f -iname "*isla*paradiso*.zip" 2>/dev/null | head -n1)
+    if [ -n "$isla_zip" ] && [ -d "$target_dir/EP10" ]; then
+        local worlds_dir="$target_dir/EP10/GameData/Shared/NonPackaged/Worlds"
+        if [ -d "$worlds_dir" ]; then
+            echo -e "${P}Instalando Parche de Mundo 'Isla Paradiso' corregido..."
+            7z e "$isla_zip" -o"$worlds_dir" "*.world" -y > /dev/null 2>&1
+            echo -e "${P}  \e[1;32m✔\e[0m IslaParadiso.world reemplazado por la versión sin lag ni congelamientos."
+        fi
+    fi
+
+    # 3. Comprobar si el usuario descargó Mods.zip de Luva (CleanUI, SmoothPatch, Store Packages)
+    local mods_zip
+    mods_zip=$(find "$HOME/Downloads" -maxdepth 2 -type f -iname "Mods.zip" 2>/dev/null | head -n1)
+    local doc_ts3="$PREFIX/drive_c/users/steamuser/Documents/Electronic Arts/The Sims 3"
+    if [ -n "$mods_zip" ] && [ -d "$doc_ts3" ]; then
+        echo -e "${P}Instalando paquete de Mods y Store esenciales de Luva..."
+        mkdir -p "$doc_ts3/Mods"
+        7z x "$mods_zip" -o"$doc_ts3" -y -bsp1
+        echo -e "${P}  \e[1;32m✔\e[0m Mods de estabilidad (CleanUI, ld_SmoothPatch, Store) instalados en Documentos."
+    fi
 }
 
 # --- ACTIVADOR / INYECTOR DE REGISTRO PARA LOS SIMS 3 ---
@@ -401,20 +424,32 @@ optimizar_rendimiento_ts3() {
         echo -e "${P}  \e[2;37m(El archivo Options.ini se creará al iniciar el juego por primera vez)\e[0m"
     fi
 
-    # 4. Inyección de DllOverride para Smooth Patch si está presente
-    echo -e "\n${P}\e[1;34m[3/3] Configurando Wine DllOverrides para Smooth Patch (dinput8)...\e[0m"
+    # 4. Auto-instalación de Parche de Estabilidad (Smooth Patch / wininet / ddraw)
+    echo -e "\n${P}\e[1;34m[3/4] Comprobando Parche de Estabilidad (Smooth Patch / LazyDuchess)...\e[0m"
+    local estabilidad_zip
+    estabilidad_zip=$(find "$HOME/Downloads" -maxdepth 2 -type f -iname "*estabilidad*sims*3*.zip" 2>/dev/null | head -n1)
+    if [ -n "$estabilidad_zip" ]; then
+        echo -e "${P}  Detectado '$estabilidad_zip'. Instalando en Game/Bin..."
+        7z e "$estabilidad_zip" -o"$bin_dir" -y > /dev/null 2>&1
+        echo -e "${P}  \e[1;32m✔\e[0m Archivos ddraw.dll, wininet.dll y TS3Patch.asi copiados a Game/Bin."
+    fi
+
+    # 5. Inyección de DllOverrides para Smooth Patch (dinput8, ddraw, wininet)
+    echo -e "\n${P}\e[1;34m[4/4] Configurando Wine DllOverrides (dinput8, ddraw, wininet)...\e[0m"
     if [ -f "$USER_REG" ]; then
-        if ! grep -q '"dinput8"="native,builtin"' "$USER_REG" 2>/dev/null; then
-            local ts=$(date +%s)
-            cat <<EOF >> "$USER_REG"
+        local ts=$(date +%s)
+        for dll_ov in "dinput8" "ddraw" "wininet"; do
+            if ! grep -q "\"$dll_ov\"=\"native,builtin\"" "$USER_REG" 2>/dev/null; then
+                cat <<EOF >> "$USER_REG"
 
 [Software\\\\Wine\\\\DllOverrides] $ts
-"dinput8"="native,builtin"
+"$dll_ov"="native,builtin"
 EOF
-            echo -e "${P}  \e[1;32m✔\e[0m Override de dinput8 añadido a user.reg."
-        else
-            echo -e "${P}  \e[1;32m✔\e[0m Override de dinput8 ya estaba activo."
-        fi
+                echo -e "${P}  \e[1;32m✔\e[0m Override de $dll_ov añadido a user.reg."
+            else
+                echo -e "${P}  \e[1;32m✔\e[0m Override de $dll_ov ya estaba activo."
+            fi
+        done
     fi
 
     echo -e "\n${P}\e[1;32m¡Optimización completada con éxito!\e[0m"
