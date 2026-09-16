@@ -390,40 +390,119 @@ activar_registro_dlcs_ts3() {
     for item in "${packs_data[@]}"; do
         IFS="|" read -r code name prod_id folder <<< "$item"
         
-        # Clave en Sims(Steam)
+        local exe_target="$win_game_dir_esc\\\\$folder\\\\Game\\\\Bin\\\\TS3$code.exe"
+        if [ ! -f "$SIMS_DIR/$code/Game/Bin/TS3$code.exe" ]; then
+            exe_target="$win_game_dir_esc\\\\Game\\\\Bin\\\\TS3.exe"
+        fi
+
+        # 1. Clave en Sims(Steam)
         if ! grep -F -q "[Software\\Sims(Steam)\\$name]" "$SYSTEM_REG" 2>/dev/null; then
             cat <<EOF >> "$SYSTEM_REG"
 
 [Software\\\\Sims(Steam)\\\\$name] $ts
+"Country"="ES"
 "DisplayName"="$name"
-"ExePath"="$win_game_dir_esc\\\\$folder\\\\Game\\\\Bin\\\\TS3$code.exe"
+"ExePath"="$exe_target"
 "Install Dir"="$win_game_dir_esc\\\\$folder"
 "Locale"="es-es"
-"Country"="ES"
 "ProductID"=dword:$(printf "%08x" "$prod_id")
 "SKU"=dword:00000007
 "Telemetry"=dword:00000000
 EOF
         fi
 
-        # Clave en Wow6432Node
+        # 2. Clave en Wow6432Node\Sims(Steam)
+        if ! grep -F -q "[Software\\Wow6432Node\\Sims(Steam)\\$name]" "$SYSTEM_REG" 2>/dev/null; then
+            cat <<EOF >> "$SYSTEM_REG"
+
+[Software\\\\Wow6432Node\\\\Sims(Steam)\\\\$name] $ts
+"Country"="ES"
+"DisplayName"="$name"
+"ExePath"="$exe_target"
+"Install Dir"="$win_game_dir_esc\\\\$folder"
+"Locale"="es-es"
+"ProductID"=dword:$(printf "%08x" "$prod_id")
+"SKU"=dword:00000007
+"Telemetry"=dword:00000000
+EOF
+        fi
+
+        # 3. Clave en Wow6432Node\Sims
         if ! grep -F -q "[Software\\Wow6432Node\\Sims\\$name]" "$SYSTEM_REG" 2>/dev/null; then
             cat <<EOF >> "$SYSTEM_REG"
 
 [Software\\\\Wow6432Node\\\\Sims\\\\$name] $ts
+"Country"="ES"
 "DisplayName"="$name"
-"ExePath"="$win_game_dir_esc\\\\$folder\\\\Game\\\\Bin\\\\TS3$code.exe"
+"ExePath"="$exe_target"
 "Install Dir"="$win_game_dir_esc\\\\$folder"
 "Locale"="es-es"
-"Country"="ES"
 "ProductID"=dword:$(printf "%08x" "$prod_id")
 "SKU"=dword:00000007
 "Telemetry"=dword:00000000
 EOF
         fi
+
+        # 4. Clave en Electronic Arts y ergc (Serial)
+        if ! grep -F -q "[Software\\Wow6432Node\\Electronic Arts\\$name]" "$SYSTEM_REG" 2>/dev/null; then
+            cat <<EOF >> "$SYSTEM_REG"
+
+[Software\\\\Wow6432Node\\\\Electronic Arts\\\\$name] $ts
+"DisplayName"="$name"
+"Install Dir"="$win_game_dir_esc\\\\$folder"
+"Locale"="es-es"
+"ProductID"=dword:$(printf "%08x" "$prod_id")
+
+[Software\\\\Wow6432Node\\\\Electronic Arts\\\\$name\\\\ergc] $ts
+@="M7SS-S6H6-H3C8-W5X5-Y7R6"
+
+[Software\\\\Electronic Arts\\\\$name] $ts
+"DisplayName"="$name"
+"Install Dir"="$win_game_dir_esc\\\\$folder"
+"Locale"="es-es"
+"ProductID"=dword:$(printf "%08x" "$prod_id")
+
+[Software\\\\Electronic Arts\\\\$name\\\\ergc] $ts
+@="M7SS-S6H6-H3C8-W5X5-Y7R6"
+EOF
+        fi
     done
 
-    echo -e "${P}\e[1;32m✔ Claves de registro inyectadas exitosamente en Wine/Proton.\e[0m"
+    # 5. Inyección de Steam Apps IDs en Wine (47891 a 47910)
+    for appid in {47891..47910}; do
+        if ! grep -F -q "[Software\\Wow6432Node\\Valve\\Steam\\Apps\\$appid]" "$SYSTEM_REG" 2>/dev/null; then
+            cat <<EOF >> "$SYSTEM_REG"
+
+[Software\\\\Wow6432Node\\\\Valve\\\\Steam\\\\Apps\\\\$appid] $ts
+"Installed"=dword:00000001
+
+[Software\\\\Valve\\\\Steam\\\\Apps\\\\$appid] $ts
+"Installed"=dword:00000001
+EOF
+        fi
+    done
+
+    # 6. Desbloqueo en el archivo appmanifest_47890.acf de Steam
+    local acf_file="$STEAM_LIBRARY/steamapps/appmanifest_47890.acf"
+    if [ -f "$acf_file" ] && ! grep -q '"dlcappid"' "$acf_file" 2>/dev/null; then
+        echo -e "${P}Actualizando manifiesto de DLCs en Steam ($acf_file)..."
+        python3 -c '
+import sys, re
+acf = sys.argv[1]
+with open(acf, "r", encoding="utf-8") as f:
+    c = f.read()
+depots = "	\"InstalledDepots\"\n	{\n"
+for i in range(47891, 47911):
+    depots += f"""		"{i}"\n		{{\n			"manifest"		"1000000000000000000"\n			"size"		"1000000"\n			"dlcappid"		"{i}"\n		}}\n"""
+depots += "	}"
+if "InstalledDepots" in c:
+    c = re.sub(r"\"InstalledDepots\"\s*\{[^}]*\}", depots, c)
+    with open(acf, "w", encoding="utf-8") as f:
+        f.write(c)
+' "$acf_file" 2>/dev/null || true
+    fi
+
+    echo -e "${P}\e[1;32m✔ Claves completas y manifiesto de Steam inyectados exitosamente.\e[0m"
     echo -e "${P}Los Sims 3 Launcher y el motor del juego reconocerán todas las expansiones."
     echo -ne "\n${P}Presiona Enter para continuar..."
     read -r
