@@ -571,7 +571,7 @@ diagnosticar_dlcs_ts3() {
     echo -e "${P}  • DLCs faltantes:           \e[1;33m$total_faltantes\e[0m"
 
     local reg_active=0
-    if [ -f "$SYSTEM_REG" ] && grep -F -q 'Software\Sims(Steam)' "$SYSTEM_REG" 2>/dev/null; then
+    if [ -f "$SYSTEM_REG" ] && grep -F -q 'Software\\Sims(Steam)' "$SYSTEM_REG" 2>/dev/null; then
         reg_active=1
     fi
 
