@@ -391,7 +391,7 @@ activar_registro_dlcs_ts3() {
         IFS="|" read -r code name prod_id folder <<< "$item"
         
         # Clave en Sims(Steam)
-        if ! grep -q "\[Software\\\\Sims(Steam)\\\\$name\]" "$SYSTEM_REG" 2>/dev/null; then
+        if ! grep -F -q "[Software\\Sims(Steam)\\$name]" "$SYSTEM_REG" 2>/dev/null; then
             cat <<EOF >> "$SYSTEM_REG"
 
 [Software\\\\Sims(Steam)\\\\$name] $ts
@@ -407,7 +407,7 @@ EOF
         fi
 
         # Clave en Wow6432Node
-        if ! grep -q "\[Software\\\\Wow6432Node\\\\Sims\\\\$name\]" "$SYSTEM_REG" 2>/dev/null; then
+        if ! grep -F -q "[Software\\Wow6432Node\\Sims\\$name]" "$SYSTEM_REG" 2>/dev/null; then
             cat <<EOF >> "$SYSTEM_REG"
 
 [Software\\\\Wow6432Node\\\\Sims\\\\$name] $ts
@@ -571,7 +571,7 @@ diagnosticar_dlcs_ts3() {
     echo -e "${P}  • DLCs faltantes:           \e[1;33m$total_faltantes\e[0m"
 
     local reg_active=0
-    if [ -f "$SYSTEM_REG" ] && grep -q "Software\\\\Sims(Steam)" "$SYSTEM_REG" 2>/dev/null; then
+    if [ -f "$SYSTEM_REG" ] && grep -F -q 'Software\Sims(Steam)' "$SYSTEM_REG" 2>/dev/null; then
         reg_active=1
     fi
 
