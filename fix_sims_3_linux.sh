@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
 
 # ==============================================================================
-#   💎 Fix Sims 3 Linux (Edición Comunitaria) v1.0
+#   💎 Fix Sims 3 Linux (Edición Comunitaria) v2.0
 #   Soporta Steam, Steam Deck, Lutris, Bottles, Heroic & Wine
 #   Compatible con Juego Base Steam, EA App y versiones Standalone
 #   Desarrollado por Jeff Cortez (github.com/JeffCortez23)
 # ==============================================================================
 
-VERSION="1.0"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 CONFIG_FILE="$HOME/.config/sims3_gestor.conf"
+ICON_PATH="$HOME/.local/share/icons/fix-sims-3.svg"
+VERSION="2.0"
 
-# --- UTILIDADES VISUALES & CENTRADO ---
+# --- UTILIDADES DE CENTRADO Y ESTILO TUI ---
+WIDTH=64
+
 obtener_padding() {
     local cols
     cols=$(tput cols 2>/dev/null || echo 80)
-    local WIDTH=66
+    [ "$cols" -lt "$WIDTH" ] && cols="$WIDTH"
     local pad=$(( (cols - WIDTH) / 2 ))
-    [ "$pad" -lt 0 ] && pad=0
     printf '%*s' "$pad" ''
 }
 
@@ -46,12 +48,11 @@ HEROIC_PATHS=(
     "$HOME/.var/app/com.heroicgameslauncher.hgl/config/heroic/Prefixes"
 )
 
-# --- CATÁLOGO OFICIAL DE DLCS DE LOS SIMS 3 ---
-# Expansiones (EP01 a EP11) y Accesorios (SP01 a SP09)
+# --- BASE DE DATOS OFICIAL DE DLCS (LOS SIMS 3) ---
 obtener_nombre_dlc() {
     local code="$1"
     case "$code" in
-        # Expansiones
+        # Expansiones (EP)
         EP01) echo "Trotamundos (World Adventures)" ;;
         EP02) echo "Triunfadores (Ambitions)" ;;
         EP03) echo "Al Caer la Noche (Late Night)" ;;
@@ -63,7 +64,7 @@ obtener_nombre_dlc() {
         EP09) echo "Movida en la Facultad (University Life)" ;;
         EP10) echo "Aventura en la Isla (Island Paradise)" ;;
         EP11) echo "Hacia el Futuro (Into the Future)" ;;
-        # Accesorios
+        # Packs de Accesorios (SP)
         SP01) echo "Diseño y Tecnología (High-End Loft)" ;;
         SP02) echo "¡Quemando Rueda! (Fast Lane)" ;;
         SP03) echo "Patios y Jardines (Outdoor Living)" ;;
@@ -79,6 +80,57 @@ obtener_nombre_dlc() {
 
 LISTA_EP=(EP01 EP02 EP03 EP04 EP05 EP06 EP07 EP08 EP09 EP10 EP11)
 LISTA_SP=(SP01 SP02 SP03 SP04 SP05 SP06 SP07 SP08 SP09)
+
+# --- DETECTOR INTELIGENTE DE HARDWARE (GPU / VRAM / CPU) ---
+detectar_hardware() {
+    DETECT_GPU_VENDOR="UNKNOWN"
+    DETECT_GPU_MODEL="Gráfica Genérica"
+    DETECT_GPU_DEVICE_ID=""
+    DETECT_VRAM_MB=2048
+    DETECT_RAM_MB=4096
+    DETECT_CPU_MODEL="Procesador Genérico"
+    DETECT_CPU_CORES=4
+
+    # 1. Detección de CPU
+    if [ -f /proc/cpuinfo ]; then
+        DETECT_CPU_MODEL=$(grep -m1 "model name" /proc/cpuinfo | awk -F: '{print $2}' | sed -e 's/^[ \t]*//')
+        DETECT_CPU_CORES=$(grep -c "^processor" /proc/cpuinfo 2>/dev/null || echo 4)
+    fi
+
+    # 2. Detección de RAM Total del Sistema
+    if [ -f /proc/meminfo ]; then
+        local mem_kb
+        mem_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+        DETECT_RAM_MB=$(( mem_kb / 1024 ))
+    fi
+
+    # 3. Detección de GPU vía lspci
+    local lspci_out
+    lspci_out=$(lspci -nn 2>/dev/null | grep -E -i "vga|3d|display" | head -n1)
+    
+    if [[ "$lspci_out" =~ (AMD|ATI|Advanced\ Micro|1002) ]]; then
+        DETECT_GPU_VENDOR="AMD"
+        DETECT_GPU_MODEL=$(echo "$lspci_out" | sed -E 's/.*controller.*: //')
+        DETECT_GPU_DEVICE_ID=$(echo "$lspci_out" | grep -o -E '1002:[0-9a-fA-F]{4}' | cut -d: -f2)
+    elif [[ "$lspci_out" =~ (NVIDIA|GeForce|10de) ]]; then
+        DETECT_GPU_VENDOR="NVIDIA"
+        DETECT_GPU_MODEL=$(echo "$lspci_out" | sed -E 's/.*controller.*: //')
+        DETECT_GPU_DEVICE_ID=$(echo "$lspci_out" | grep -o -E '10de:[0-9a-fA-F]{4}' | cut -d: -f2)
+    elif [[ "$lspci_out" =~ (Intel|8086) ]]; then
+        DETECT_GPU_VENDOR="Intel"
+        DETECT_GPU_MODEL=$(echo "$lspci_out" | sed -E 's/.*controller.*: //')
+        DETECT_GPU_DEVICE_ID=$(echo "$lspci_out" | grep -o -E '8086:[0-9a-fA-F]{4}' | cut -d: -f2)
+    fi
+
+    # 4. Cálculo de VRAM recomendada según la RAM del sistema y tipo de GPU
+    if [ "$DETECT_RAM_MB" -ge 12000 ]; then
+        DETECT_VRAM_MB=4096
+    elif [ "$DETECT_RAM_MB" -ge 6000 ]; then
+        DETECT_VRAM_MB=2048
+    else
+        DETECT_VRAM_MB=1024
+    fi
+}
 
 # --- DETECCIÓN DE ENTORNOS Y PREFIJOS ---
 detectar_entornos() {
@@ -250,7 +302,7 @@ arreglar_estructura_dlcs_ts3() {
     local P
     P=$(obtener_padding)
     
-    # 1. Si los DLCs se descomprimieron dentro de una subcarpeta "The Sims 3" o "Los Sims 3"
+    # 1. Si los DLCs se descomprimieron dentro de una subcarpeta "The Sims 3" o "Los Sims 3" o "All in One"
     for sub in "$target_dir/The Sims 3" "$target_dir/Los Sims 3" "$target_dir/all in one" "$target_dir/All in One" "$target_dir/DLCs"; do
         if [ -d "$sub" ]; then
             echo -e "${P}Moviendo contenidos desde subcarpeta '$sub' a la raíz del juego..."
@@ -306,7 +358,6 @@ activar_registro_dlcs_ts3() {
     # Backup preventivo
     cp "$SYSTEM_REG" "$SYSTEM_REG.bak_$(date +%s)"
 
-    # Array de datos de registro de Los Sims 3 (Código, Nombre, SKU, ExeName)
     local packs_data=(
         "EP01|The Sims 3 World Adventures|1002|EP01"
         "EP02|The Sims 3 Ambitions|1003|EP02"
@@ -336,7 +387,6 @@ activar_registro_dlcs_ts3() {
     win_game_dir=$(winepath -w "$SIMS_DIR" 2>/dev/null || echo "C:\\Program Files (x86)\\Steam\\steamapps\\common\\The Sims 3")
     win_game_dir_esc="${win_game_dir//\\/\\\\}"
 
-    # Inyectar bloques en system.reg si no existen
     for item in "${packs_data[@]}"; do
         IFS="|" read -r code name prod_id folder <<< "$item"
         
@@ -379,18 +429,19 @@ EOF
     read -r
 }
 
-# --- OPTIMIZACIÓN ULTRA-SMOOTH (GRAPHICSRULES + VRAM + 60FPS) ---
+# --- OPTIMIZACIÓN INTELIGENTE DE GRÁFICOS Y RENDIMIENTO SEGÚN HARDWARE ---
 optimizar_rendimiento_ts3() {
     clear
     local P
     P=$(obtener_padding)
     echo -e "\n\n"
     echo -e "${P}\e[1;36m╭──────────────────────────────────────────────────────────────╮\e[0m"
-    echo -e "${P}\e[1;36m│\e[0m       \e[1;32m⚡ OPTIMIZACIÓN ULTRA-SMOOTH & GRÁFICOS (SIMS 3)\e[0m        \e[1;36m│\e[0m"
+    echo -e "${P}\e[1;36m│\e[0m     \e[1;32m⚡ OPTIMIZACIÓN INTELIGENTE DE GRÁFICOS & HARDWARE (TS3)\e[0m   \e[1;36m│\e[0m"
     echo -e "${P}\e[1;36m╰──────────────────────────────────────────────────────────────╯\e[0m\n"
 
     local bin_dir="$SIMS_DIR/Game/Bin"
     local gr_file="$bin_dir/GraphicsRules.sgr"
+    local gc_file="$bin_dir/GraphicsCards.sgr"
 
     if [ ! -f "$gr_file" ]; then
         echo -e "${P}\e[1;31m¡Error! No se encontró GraphicsRules.sgr en:\e[0m $bin_dir"
@@ -399,32 +450,48 @@ optimizar_rendimiento_ts3() {
         return 1
     fi
 
-    echo -e "${P}\e[1;34m[1/3] Parcheando GraphicsRules.sgr para GPUs Modernas & VRAM...\e[0m"
+    detectar_hardware
+
+    echo -e "${P}\e[1;37m• Hardware detectado en tu equipo:\e[0m"
+    echo -e "${P}  - CPU:   \e[1;33m$DETECT_CPU_MODEL ($DETECT_CPU_CORES núcleos)\e[0m"
+    echo -e "${P}  - GPU:   \e[1;32m$DETECT_GPU_MODEL [$DETECT_GPU_VENDOR]\e[0m"
+    echo -e "${P}  - RAM:   \e[1;36m$DETECT_RAM_MB MB\e[0m"
+    echo -e "${P}  - VRAM Óptima Calculada: \e[1;35m$DETECT_VRAM_MB MB\e[0m\n"
+
+    echo -e "${P}\e[1;34m[1/4] Calibrando GraphicsRules.sgr con el perfil de tu GPU...\e[0m"
     cp "$gr_file" "$gr_file.bak_$(date +%s)"
     
-    # 1. Aumentar el límite de textura/VRAM de 32MB/128MB/512MB a 2048MB
-    sed -i 's/seti setiParam 128/seti setiParam 2048/g' "$gr_file" 2>/dev/null || true
-    sed -i 's/seti setiParam 256/seti setiParam 2048/g' "$gr_file" 2>/dev/null || true
-    sed -i 's/seti setiParam 512/seti setiParam 2048/g' "$gr_file" 2>/dev/null || true
+    # 1. Inyección de VRAM ajustada al hardware real
+    sed -i "s/seti setiParam 128/seti setiParam $DETECT_VRAM_MB/g" "$gr_file" 2>/dev/null || true
+    sed -i "s/seti setiParam 256/seti setiParam $DETECT_VRAM_MB/g" "$gr_file" 2>/dev/null || true
+    sed -i "s/seti setiParam 512/seti setiParam $DETECT_VRAM_MB/g" "$gr_file" 2>/dev/null || true
+    sed -i "s/seti setiParam 2048/seti setiParam $DETECT_VRAM_MB/g" "$gr_file" 2>/dev/null || true
     sed -i 's/setb textureMemorySizeOK false/setb textureMemorySizeOK true/g' "$gr_file" 2>/dev/null || true
 
-    # 2. Desactivar limitador de sombras defectuoso en tarjetas modernas
+    # 2. Asignar perfil gráfico Uber (5) a GPUs modernas reconocidas
+    if [ "$DETECT_GPU_VENDOR" = "AMD" ]; then
+        sed -i 's/match("${cardVendor}", "ATI")/match("${cardVendor}", "ATI") or match("${cardVendor}", "AMD")/g' "$gr_file" 2>/dev/null || true
+    elif [ "$DETECT_GPU_VENDOR" = "NVIDIA" ]; then
+        sed -i 's/setb shadowMapDisabled true/setb shadowMapDisabled false/g' "$gr_file" 2>/dev/null || true
+    fi
+    
+    # Desactivar bug de sombras en tarjetas modernas
     sed -i 's/setb shadowMapDisabled true/setb shadowMapDisabled false/g' "$gr_file" 2>/dev/null || true
 
-    echo -e "${P}  \e[1;32m✔\e[0m VRAM desbloqueada a 2048 MB y reglas de sombras optimizadas."
+    echo -e "${P}  \e[1;32m✔\e[0m Memoria de texturas configurada a $DETECT_VRAM_MB MB ($DETECT_GPU_VENDOR)."
 
-    # 3. Optimizar DeviceConfig / Documentos de usuario
-    echo -e "\n${P}\e[1;34m[2/3] Configurando opciones del juego a 1080p Nativo...\e[0m"
+    # 3. Configuración de pantalla nativa
+    echo -e "\n${P}\e[1;34m[2/4] Configurando opciones del juego a 1080p Nativo @ 60 FPS...\e[0m"
     local doc_options="$PREFIX/drive_c/users/steamuser/Documents/Electronic Arts/The Sims 3/Options.ini"
     if [ -f "$doc_options" ]; then
         sed -i 's/^resolution = .*/resolution = 1920 1080 60/g' "$doc_options" 2>/dev/null || echo "resolution = 1920 1080 60" >> "$doc_options"
         sed -i 's/^fullscreen = .*/fullscreen = 1/g' "$doc_options" 2>/dev/null || echo "fullscreen = 1" >> "$doc_options"
-        echo -e "${P}  \e[1;32m✔\e[0m Resolución fijada a 1920x1080 @ 60Hz."
+        echo -e "${P}  \e[1;32m✔\e[0m Resolución fijada a 1920x1080 @ 60Hz en Options.ini."
     else
         echo -e "${P}  \e[2;37m(El archivo Options.ini se creará al iniciar el juego por primera vez)\e[0m"
     fi
 
-    # 4. Auto-instalación de Parche de Estabilidad (Smooth Patch / wininet / ddraw)
+    # 4. Auto-instalación de Parche de Estabilidad de Luva (Smooth Patch / wininet / ddraw)
     echo -e "\n${P}\e[1;34m[3/4] Comprobando Parche de Estabilidad (Smooth Patch / LazyDuchess)...\e[0m"
     local estabilidad_zip
     estabilidad_zip=$(find "$HOME/Downloads" -maxdepth 2 -type f -iname "*estabilidad*sims*3*.zip" 2>/dev/null | head -n1)
@@ -452,49 +519,7 @@ EOF
         done
     fi
 
-    echo -e "\n${P}\e[1;32m¡Optimización completada con éxito!\e[0m"
-    echo -ne "\n${P}Presiona Enter para continuar..."
-    read -r
-}
-
-# --- LIMPIADOR DE CACHÉ DE LOS SIMS 3 ---
-limpiar_cache_ts3() {
-    clear
-    local P
-    P=$(obtener_padding)
-    echo -e "\n\n"
-    echo -e "${P}\e[1;36m╭──────────────────────────────────────────────────────────────╮\e[0m"
-    echo -e "${P}\e[1;36m│\e[0m          \e[1;33m🧹 LIMPIADOR DE CACHÉ DE LOS SIMS 3\e[0m                  \e[1;36m│\e[0m"
-    echo -e "${P}\e[1;36m╰──────────────────────────────────────────────────────────────╯\e[0m\n"
-
-    local doc_dir="$PREFIX/drive_c/users/steamuser/Documents/Electronic Arts/The Sims 3"
-    if [ ! -d "$doc_dir" ]; then
-        echo -e "${P}\e[1;33mAviso:\e[0m No se encontró la carpeta de documentos en:\n${P}$doc_dir\n"
-        echo -ne "${P}Presiona Enter para continuar..."
-        read -r
-        return 0
-    fi
-
-    echo -e "${P}Borrando archivos de caché temporales y corruptos..."
-    local eliminados=0
-
-    for cache_file in "CASPartCache.package" "compositorCache.package" "scriptCache.package" "simCompositorCache.package" "socialCache.package"; do
-        if [ -f "$doc_dir/$cache_file" ]; then
-            rm -f "$doc_dir/$cache_file"
-            echo -e "${P}  \e[1;32m✔\e[0m Eliminado: $cache_file"
-            ((eliminados++))
-        fi
-    done
-
-    # Limpieza de miniaturas temporales
-    if [ -d "$doc_dir/Thumbnails" ]; then
-        rm -rf "$doc_dir/Thumbnails"/* 2>/dev/null
-        echo -e "${P}  \e[1;32m✔\e[0m Vaciada carpeta de miniaturas (Thumbnails/)"
-        ((eliminados++))
-    fi
-
-    echo -e "\n${P}\e[1;32m¡Limpieza terminada! Se purgaron $eliminados elementos de caché.\e[0m"
-    echo -e "${P}Esto resuelve problemas de carga infinita, sims invisibles y errores de texturas."
+    echo -e "\n${P}\e[1;32m¡Optimización personalizada completada con éxito!\e[0m"
     echo -ne "\n${P}Presiona Enter para continuar..."
     read -r
 }
@@ -560,7 +585,161 @@ diagnosticar_dlcs_ts3() {
     read -r
 }
 
-# --- BUCLE PRINCIPAL DEL MENÚ ---
+# --- LIMPIADOR DE CACHÉ DE LOS SIMS 3 ---
+limpiar_cache_ts3() {
+    clear
+    local P
+    P=$(obtener_padding)
+    echo -e "\n\n"
+    echo -e "${P}\e[1;36m╭──────────────────────────────────────────────────────────────╮\e[0m"
+    echo -e "${P}\e[1;36m│\e[0m          \e[1;33m🧹 LIMPIADOR DE CACHÉ DE LOS SIMS 3\e[0m                  \e[1;36m│\e[0m"
+    echo -e "${P}\e[1;36m╰──────────────────────────────────────────────────────────────╯\e[0m\n"
+
+    local doc_dir="$PREFIX/drive_c/users/steamuser/Documents/Electronic Arts/The Sims 3"
+    if [ ! -d "$doc_dir" ]; then
+        echo -e "${P}\e[1;33mAviso:\e[0m No se encontró la carpeta de documentos en:\n${P}$doc_dir\n"
+        echo -ne "${P}Presiona Enter para continuar..."
+        read -r
+        return 0
+    fi
+
+    echo -e "${P}Borrando archivos de caché temporales y corruptos..."
+    local eliminados=0
+
+    for cache_file in "CASPartCache.package" "compositorCache.package" "scriptCache.package" "simCompositorCache.package" "socialCache.package"; do
+        if [ -f "$doc_dir/$cache_file" ]; then
+            rm -f "$doc_dir/$cache_file"
+            echo -e "${P}  \e[1;32m✔\e[0m Eliminado: $cache_file"
+            ((eliminados++))
+        fi
+    done
+
+    if [ -d "$doc_dir/Thumbnails" ]; then
+        rm -rf "$doc_dir/Thumbnails"/* 2>/dev/null
+        echo -e "${P}  \e[1;32m✔\e[0m Vaciada carpeta de miniaturas (Thumbnails/)"
+        ((eliminados++))
+    fi
+
+    echo -e "\n${P}\e[1;32m¡Limpieza terminada! Se purgaron $eliminados elementos de caché.\e[0m"
+    echo -e "${P}Esto resuelve problemas de carga infinita, sims invisibles y texturas lentas."
+    echo -ne "\n${P}Presiona Enter para continuar..."
+    read -r
+}
+
+# --- ACCESO DIRECTO EN ESCRITORIO Y MENÚ DE APLICACIONES ---
+crear_acceso_directo_ts3() {
+    clear
+    local P
+    P=$(obtener_padding)
+    echo -e "\n\n"
+    echo -e "${P}\e[1;36m╭──────────────────────────────────────────────────────────────╮\e[0m"
+    echo -e "${P}\e[1;36m│\e[0m         \e[1;33m🖥️  CREAR ACCESO DIRECTO (.DESKTOP)\e[0m                   \e[1;36m│\e[0m"
+    echo -e "${P}\e[1;36m╰──────────────────────────────────────────────────────────────╯\e[0m\n"
+
+    mkdir -p "$HOME/.local/share/icons"
+    cat <<'EOF_SVG' > "$ICON_PATH"
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="plumbobTop" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="plumbobHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#e0f2fe"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+    <linearGradient id="plumbobBottom" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7"/>
+      <stop offset="100%" stop-color="#0369a1"/>
+    </linearGradient>
+  </defs>
+  <polygon points="64,12 100,56 64,68" fill="url(#plumbobTop)"/>
+  <polygon points="64,12 28,56 64,68" fill="url(#plumbobHighlight)"/>
+  <polygon points="64,68 100,56 64,116" fill="url(#plumbobBottom)"/>
+  <polygon points="64,68 28,56 64,116" fill="url(#plumbobTop)"/>
+  <line x1="64" y1="12" x2="64" y2="116" stroke="#bae6fd" stroke-width="1.5" opacity="0.8"/>
+</svg>
+EOF_SVG
+
+    DESKTOP_ENTRY="$HOME/.local/share/applications/fix-sims-3.desktop"
+    mkdir -p "$HOME/.local/share/applications"
+
+    cat <<EOF_DESK > "$DESKTOP_ENTRY"
+[Desktop Entry]
+Name=Fix Sims 3 Linux
+Comment=Gestor, Optimizador y Activador de DLCs para Los Sims 3 en Linux
+Exec=bash -c 'bash "$SCRIPT_DIR/fix_sims_3_linux.sh"'
+Icon=$ICON_PATH
+Terminal=true
+Type=Application
+Categories=Game;Utility;
+Keywords=Sims;Sims3;DLC;Optimizacion;Proton;
+EOF_DESK
+    chmod +x "$DESKTOP_ENTRY"
+
+    if [ -d "$HOME/Desktop" ]; then
+        cp "$DESKTOP_ENTRY" "$HOME/Desktop/Fix Sims 3.desktop"
+        chmod +x "$HOME/Desktop/Fix Sims 3.desktop"
+    fi
+
+    echo -e "${P}\e[1;32m✔ Acceso directo creado en tu menú de aplicaciones y en el Escritorio.\e[0m"
+    echo -ne "\n${P}Presiona Enter para continuar..."
+    read -r
+}
+
+# --- ASESINO DE PROCESOS COLGADOS ---
+matar_procesos_colgados_ts3() {
+    clear
+    local P
+    P=$(obtener_padding)
+    echo -e "\n\n"
+    echo -e "${P}\e[1;36m╭──────────────────────────────────────────────────────────────╮\e[0m"
+    echo -e "${P}\e[1;36m│\e[0m       \e[1;31m🔪 FORZAR CIERRE DE PROCESOS COLGADOS (TS3)\e[0m            \e[1;36m│\e[0m"
+    echo -e "${P}\e[1;36m╰──────────────────────────────────────────────────────────────╯\e[0m\n"
+    echo -e "${P}\e[1;31m[Aniquilando procesos fantasma de Los Sims 3 y Steam Proton...]\e[0m"
+    pkill -9 -u "$USER" -f "steam-runtime-reaper" > /dev/null 2>&1
+    pkill -9 -u "$USER" -f "steam-launch-wrapper" > /dev/null 2>&1
+    pkill -9 -u "$USER" -f "TS3W.exe" > /dev/null 2>&1
+    pkill -9 -u "$USER" -f "TS3.exe" > /dev/null 2>&1
+    pkill -9 -u "$USER" -f "Sims3Launcher.exe" > /dev/null 2>&1
+    pkill -9 -u "$USER" -f "Sims3LauncherW.exe" > /dev/null 2>&1
+    pkill -9 -u "$USER" -f "TSLHelper.exe" > /dev/null 2>&1
+    echo -e "${P}\e[1;32m✔ ¡Limpieza completada! El botón de Steam volverá a responder en verde.\e[0m"
+    echo -ne "\n${P}Presiona Enter para continuar..."
+    read -r
+}
+
+# --- SECCIÓN ACERCA DE & CHANGELOG ---
+mostrar_acerca_de_ts3() {
+    clear
+    local P
+    P=$(obtener_padding)
+    echo -e "\n\n"
+    echo -e "${P}\e[1;36m╭──────────────────────────────────────────────────────────────╮\e[0m"
+    echo -e "${P}\e[1;36m│\e[0m            \e[1;32m💎 FIX SIMS 3 LINUX (EDICIÓN COMUNITARIA)\e[0m         \e[1;36m│\e[0m"
+    echo -e "${P}\e[1;36m│\e[0m       \e[2;37mSteam • Steam Deck • Lutris • Bottles • Heroic\e[0m         \e[1;36m│\e[0m"
+    echo -e "${P}\e[1;36m╰──────────────────────────────────────────────────────────────╯\e[0m\n"
+    echo -e "${P}  \e[1;37m• Versión:\e[0m        \e[1;32mv$VERSION\e[0m"
+    echo -e "${P}  \e[1;37m• Autor:\e[0m          \e[1;36mJeff Cortez\e[0m"
+    echo -e "${P}  \e[1;37m• Repositorio:\e[0m    \e[1;34mhttps://github.com/JeffCortez23/Fix_Sims_3_Linux\e[0m"
+    echo -e "${P}  \e[1;37m• Compatibilidad:\e[0m \e[1;35mSteam, Steam Deck, Lutris, Bottles, Heroic, Wine\e[0m"
+    echo -e "\n${P}\e[1;36m────────────────────────────────────────────────────────────────\e[0m"
+    echo -e "${P}\e[1;33m📜 HISTORIAL DE CAMBIOS (CHANGELOG):\e[0m\n"
+    echo -e "${P}  \e[1;32m[v2.0] - Detección de Hardware, Gráficos VRAM, Menús TS4 & Luva Pack\e[0m"
+    echo -e "${P}    • 🎮 \e[1;37mDetección de Hardware:\e[0m Auto-detecta AMD, NVIDIA, Intel y RAM."
+    echo -e "${P}    • ⚡ \e[1;37mGraphicsRules Dinámico:\e[0m Asigna VRAM óptima (1GB, 2GB o 4GB)."
+    echo -e "${P}    • 🏝️  \e[1;37mIsla Paradiso Fix:\e[0m Parche anti-lag automático de mundo."
+    echo -e "${P}    • 📦 \e[1;37mMods.zip Auto-deploy:\e[0m CleanUI y SmoothPatch a Documentos."
+    echo -e "${P}    • 🎨 \e[1;37mMenús Idénticos a TS4:\e[0m Estilo TUI centrado con 9 opciones."
+    echo -e "${P}    • 🖥️  \e[1;37mAcceso Directo:\e[0m Creación de lanzador .desktop e icono Plumbob.\n"
+    echo -e "${P}  \e[1;32m[v1.0] - Lanzamiento Inicial\e[0m"
+    echo -e "${P}    • Inyección de registro de las 11 Expansiones y 9 Accesorios."
+    echo -e "\n${P}\e[1;36m────────────────────────────────────────────────────────────────\e[0m"
+    echo -ne "\n${P}Presiona Enter para volver al menú principal..."
+    read -r
+}
+
+# --- MENÚ PRINCIPAL ---
 while true; do
     clear
     P=$(obtener_padding)
@@ -572,14 +751,17 @@ while true; do
     echo ""
     echo -e "${P}  \e[1;33m[1]\e[0m 📦  \e[1;37mInstalar / Mover DLCs al juego\e[0m \e[2;37m(ZIP All-in-One, Sueltos, Lotes)\e[0m"
     echo -e "${P}  \e[1;33m[2]\e[0m 🔓  \e[1;37mActivar DLCs\e[0m \e[2;37m(Inyección de Registro Wine/Proton)\e[0m"
-    echo -e "${P}  \e[1;33m[3]\e[0m ⚡  \e[1;37mOptimización Ultra-Smooth\e[0m \e[2;37m(GPU, 2GB VRAM, 60 FPS, Parches)\e[0m"
+    echo -e "${P}  \e[1;33m[3]\e[0m ⚡  \e[1;37mOptimización de Gráficos & GPU\e[0m \e[2;37m(Auto-detectar Hardware & VRAM)\e[0m"
     echo -e "${P}  \e[1;33m[4]\e[0m 🔍  \e[1;37mDiagnóstico de DLCs e Integridad\e[0m \e[2;37m(Health Check)\e[0m"
-    echo -e "${P}  \e[1;33m[5]\e[0m 🧹  \e[1;37mLimpiar Caché del Juego\e[0m \e[2;37m(Solución Errores & Cargas)\e[0m"
-    echo -e "${P}  \e[1;33m[6]\e[0m ⚙️   \e[1;37mReconfigurar rutas del script / Lanzador\e[0m"
+    echo -e "${P}  \e[1;33m[5]\e[0m 🧹  \e[1;37mLimpiar Caché del Juego\e[0m \e[2;37m(Solución Carga Infinita)\e[0m"
+    echo -e "${P}  \e[1;33m[6]\e[0m 🖥️   \e[1;37mCrear Acceso Directo\e[0m \e[2;37m(.desktop / Steam Deck)\e[0m"
+    echo -e "${P}  \e[1;33m[7]\e[0m 🔪  \e[1;37mForzar cierre de procesos colgados\e[0m \e[2;37m(Fix Sims 3 / Steam)\e[0m"
+    echo -e "${P}  \e[1;33m[8]\e[0m ⚙️   \e[1;37mReconfigurar rutas del script / Lanzador\e[0m"
+    echo -e "${P}  \e[1;33m[9]\e[0m ℹ️   \e[1;37mAcerca de & Changelog\e[0m"
     echo -e "${P}  \e[1;31m[0]\e[0m 🚪  \e[1;37mSalir\e[0m"
     echo ""
     echo -e "${P}\e[1;36m────────────────────────────────────────────────────────────────\e[0m"
-    echo -ne "${P}\e[1;33m👉 Elige una opción (0-6):\e[0m "
+    echo -ne "${P}\e[1;33m👉 Elige una opción (0-9):\e[0m "
     read -r opcion
 
     case $opcion in
@@ -602,7 +784,6 @@ while true; do
                         arch="${ARCHIVOS_COMPRIMIDOS[$i]}"
                         base_arch="$(basename "$arch")"
 
-                        # Ignorar archivos auxiliares especiales que se instalan por separado en su destino correcto
                         case "$base_arch" in
                             Mods.zip|*Parche*|*parche*|*Estabilidad*|*estabilidad*|*Worlds*|*worlds*)
                                 continue
@@ -635,7 +816,7 @@ while true; do
                     [ "$errores" -gt 0 ] && echo -e "${P}  • Archivos dañados/incompletos:  \e[1;31m$errores\e[0m"
                 fi
 
-                # Copiar carpetas sueltas directas si las hay (ej. EP01, EP02...)
+                # Copiar carpetas sueltas directas si las hay
                 for item in "$DLC_SOURCE"/*; do
                     [ -e "$item" ] || continue
                     case "$item" in
@@ -686,6 +867,14 @@ while true; do
             ;;
 
         6)
+            crear_acceso_directo_ts3
+            ;;
+
+        7)
+            matar_procesos_colgados_ts3
+            ;;
+
+        8)
             configurar_rutas
             source "$CONFIG_FILE"
             if [ -d "$STEAM_LIBRARY/steamapps/common/The Sims 3" ]; then
@@ -707,6 +896,10 @@ while true; do
             fi
             SYSTEM_REG="$PREFIX/system.reg"
             USER_REG="$PREFIX/user.reg"
+            ;;
+
+        9)
+            mostrar_acerca_de_ts3
             ;;
 
         0)
