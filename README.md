@@ -1,4 +1,4 @@
-# 💎 Fix Sims 3 Linux 🐧 (v2.2)
+# 💎 Fix Sims 3 Linux 🐧 (v2.3)
 
 ¡Hola! Si juegas a **Los Sims 3 en Linux o Steam Deck** (mediante **Steam, Lutris, Bottles, Heroic o Wine**), sabes que hacer funcionar las expansiones, el launcher oficial, lograr que el juego reconozca tu tarjeta gráfica moderna y eliminar los tirones o lag suele ser un verdadero reto.
 
@@ -21,7 +21,11 @@ curl -sSL https://tinyurl.com/fixsims3linux -o fix_ts3.sh && bash fix_ts3.sh
 
 ---
 
-## ✨ Funciones Principales (v2.2)
+## ✨ Funciones Principales (v2.3)
+
+* 🚀 **Auto-Actualizador Inteligente & Accesos Directos Persistentes:**
+  * Al iniciar, el gestor consulta automáticamente si hay una nueva versión en GitHub (sin demoras ni bloqueos offline). Si existe, te ofrece actualizarse con 1 tecla (`S`), descargando, validando sintaxis (`bash -n`) y reiniciando en el acto.
+  * La opción de crear acceso directo instala permanentemente el script en `~/.local/share/fix-sims-3/`, garantizando que tu acceso directo en el Escritorio o Menú de Aplicaciones **siempre funcione y se mantenga actualizado**, incluso si borras el script descargado originalmente.
 
 * ⚡ **Optimización Inteligente de Gráficos & Hardware:**
   * **Detección Directa del Kernel:** Detecta físicamente tu GPU real (AMD Radeon, NVIDIA GeForce, Intel Arc/Iris) y procesador sin requerir emuladores ni capas de Windows.
@@ -155,7 +159,11 @@ funcsave fixsims3
 
 ## 📜 Historial de Cambios (Changelog)
 
-### 🚀 Versión 2.2 (Actual)
+### 🚀 Versión 2.3 (Actual)
+* **🚀 Auto-Actualizador Nativo:** El script comprueba automáticamente si hay nuevas actualizaciones en GitHub al iniciar y se auto-actualiza en el acto tras confirmar con una tecla.
+* **📌 Accesos Directos Persistentes:** Al crear el lanzador `.desktop`, el script se copia de forma segura e independiente en `~/.local/share/fix-sims-3/`, de modo que el acceso directo nunca se rompe y siempre recibe actualizaciones.
+
+### 🚀 Versión 2.2
 * **📂 Abrir Carpeta Mods:** Acceso directo e instantáneo a la carpeta `Mods/Packages` mediante `xdg-open` en el gestor de archivos nativo.
 * **🏛️ Soporte Worlds & Store Updates:** Auto-extracción de los 442 archivos `.Sims3Pack` a `Downloads/` y fixes `.package` a `Mods/Packages/`.
 * **🌐 TinyURL Oficial:** Comando rápido de instalación y ejecución en una sola línea.

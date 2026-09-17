@@ -8,10 +8,14 @@
 # ==============================================================================
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+SCRIPT_FILE="$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "$0")"
 CONFIG_FILE="$HOME/.config/sims3_gestor.conf"
 UNLOCKER_STORE="$HOME/.local/share/sims3_unlocker"
 ICON_PATH="$HOME/.local/share/icons/fix-sims-3.svg"
-VERSION="2.2"
+APP_INSTALL_DIR="$HOME/.local/share/fix-sims-3"
+INSTALLED_SCRIPT="$APP_INSTALL_DIR/fix_sims_3_linux.sh"
+RAW_URL="https://raw.githubusercontent.com/JeffCortez23/Fix_Sims_3_Linux/main/fix_sims_3_linux.sh"
+VERSION="2.3"
 
 # --- UTILIDADES DE CENTRADO Y ESTILO TUI ---
 WIDTH=64
@@ -92,6 +96,57 @@ obtener_nombre_dlc() {
 
 LISTA_EP=(EP01 EP02 EP03 EP04 EP05 EP06 EP07 EP08 EP09 EP10 EP11)
 LISTA_SP=(SP01 SP02 SP03 SP04 SP05 SP06 SP07 SP08 SP09)
+
+# --- COMPROBACIÓN Y AUTO-ACTUALIZACIÓN DESDE GITHUB ---
+comprobar_actualizacion_auto() {
+    command -v curl &>/dev/null || return 0
+    local remote_ver
+    remote_ver=$(curl -sSL --max-time 2 "$RAW_URL" 2>/dev/null | grep -m1 '^VERSION=' | cut -d'"' -f2)
+    [ -z "$remote_ver" ] && return 0
+
+    local menor
+    menor=$(printf '%s\n%s\n' "$VERSION" "$remote_ver" | sort -V | head -n1)
+
+    if [ "$menor" = "$VERSION" ] && [ "$VERSION" != "$remote_ver" ]; then
+        local P
+        P=$(obtener_padding)
+        echo -e "\n${P}\e[1;36m╭──────────────────────────────────────────────────────────────╮\e[0m"
+        echo -e "${P}\e[1;36m│\e[0m      \e[1;33m✨ ¡NUEVA ACTUALIZACIÓN DISPONIBLE EN GITHUB!\e[0m           \e[1;36m│\e[0m"
+        echo -e "${P}\e[1;36m│\e[0m                  \e[1;32mv$VERSION ➔ v$remote_ver\e[0m                    \e[1;36m│\e[0m"
+        echo -e "${P}\e[1;36m╰──────────────────────────────────────────────────────────────╯\e[0m\n"
+        echo -ne "${P}¿Deseas actualizar el gestor automáticamente ahora? (S/n): "
+        local resp_up
+        leer_teclado resp_up
+        if [[ ! "$resp_up" =~ ^[Nn]$ ]]; then
+            echo -e "\n${P}\e[1;34mDescargando e instalando actualización v$remote_ver...\e[0m"
+            local tmp_up
+            tmp_up=$(mktemp)
+            if curl -sSL --max-time 15 "$RAW_URL" -o "$tmp_up" 2>/dev/null && bash -n "$tmp_up" 2>/dev/null; then
+                local dest=""
+                if [ -f "$SCRIPT_FILE" ] && [ -w "$SCRIPT_FILE" ]; then
+                    dest="$SCRIPT_FILE"
+                elif [ -f "$INSTALLED_SCRIPT" ] && [ -w "$INSTALLED_SCRIPT" ]; then
+                    dest="$INSTALLED_SCRIPT"
+                else
+                    mkdir -p "$APP_INSTALL_DIR"
+                    dest="$INSTALLED_SCRIPT"
+                fi
+
+                cp "$tmp_up" "$dest"
+                chmod +x "$dest"
+                rm -f "$tmp_up"
+                echo -e "${P}\e[1;32m✔ ¡Gestor actualizado con éxito a v$remote_ver!\e[0m"
+                echo -e "${P}Reiniciando en 1 segundo..."
+                sleep 1
+                exec bash "$dest" "$@"
+            else
+                rm -f "$tmp_up"
+                echo -e "${P}\e[1;31mError al descargar la actualización. Continuando con versión actual...\e[0m"
+                sleep 1
+            fi
+        fi
+    fi
+}
 
 # --- DETECTOR INTELIGENTE DE HARDWARE (GPU / VRAM / CPU) ---
 detectar_hardware() {
@@ -1233,14 +1288,25 @@ crear_acceso_directo_ts3() {
 </svg>
 EOF_SVG
 
-    DESKTOP_ENTRY="$HOME/.local/share/applications/fix-sims-3.desktop"
+    # 1. Asegurar copia permanente en ~/.local/share/fix-sims-3/
+    mkdir -p "$APP_INSTALL_DIR"
     mkdir -p "$HOME/.local/share/applications"
+
+    if [ -f "$SCRIPT_FILE" ]; then
+        cp "$SCRIPT_FILE" "$INSTALLED_SCRIPT" 2>/dev/null || true
+    fi
+    if [ ! -f "$INSTALLED_SCRIPT" ]; then
+        curl -sSL "$RAW_URL" -o "$INSTALLED_SCRIPT" 2>/dev/null || true
+    fi
+    chmod +x "$INSTALLED_SCRIPT" 2>/dev/null || true
+
+    DESKTOP_ENTRY="$HOME/.local/share/applications/fix-sims-3.desktop"
 
     cat <<EOF_DESK > "$DESKTOP_ENTRY"
 [Desktop Entry]
 Name=Fix Sims 3 Linux
 Comment=Gestor, Optimizador y Activador de DLCs para Los Sims 3 en Linux
-Exec=bash -c 'bash "$SCRIPT_DIR/fix_sims_3_linux.sh"'
+Exec=bash -c 'bash "$INSTALLED_SCRIPT"'
 Icon=$ICON_PATH
 Terminal=true
 Type=Application
@@ -1297,6 +1363,9 @@ mostrar_acerca_de_ts3() {
     echo -e "${P}  \e[1;37m• Compatibilidad:\e[0m \e[1;35mSteam, Steam Deck, Lutris, Bottles, Heroic, Wine\e[0m"
     echo -e "\n${P}\e[1;36m────────────────────────────────────────────────────────────────\e[0m"
     echo -e "${P}\e[1;33m📜 HISTORIAL DE CAMBIOS (CHANGELOG):\e[0m\n"
+    echo -e "${P}  \e[1;32m[v2.3] - Auto-Actualizador Nativo & Accesos Directos Persistentes\e[0m"
+    echo -e "${P}    • 🚀 \e[1;37mAuto-Update GitHub:\e[0m Detección y auto-reemplazo transparente al iniciar."
+    echo -e "${P}    • 📌 \e[1;37mInstalación Persistente:\e[0m Acceso directo vinculado a ~/.local/share/fix-sims-3/.\n"
     echo -e "${P}  \e[1;32m[v2.2] - Gestión Directa de Mods & Worlds Store Updates\e[0m"
     echo -e "${P}    • 📂 \e[1;37mAbrir Carpeta Mods:\e[0m Acceso directo en el explorador de archivos nativo."
     echo -e "${P}    • 🏛️  \e[1;37mWorlds & Store Updates:\e[0m Auto-descompresión de Sims3Packs y Packages."
@@ -1317,6 +1386,9 @@ mostrar_acerca_de_ts3() {
     echo -ne "\n${P}Presiona Enter para volver al menú principal..."
     leer_teclado
 }
+
+# --- COMPROBAR ACTUALIZACIONES AL INICIAR ---
+comprobar_actualizacion_auto "$@"
 
 # --- MENÚ PRINCIPAL ---
 while true; do
