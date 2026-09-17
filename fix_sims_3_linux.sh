@@ -24,6 +24,17 @@ obtener_padding() {
     printf '%*s' "$pad" ''
 }
 
+# --- LECTURA ROBUSTA DE TECLADO (SOPORTE PARA PIPE / DEV / TTY) ---
+leer_teclado() {
+    if [ -t 0 ]; then
+        read -r "$@"
+    elif [ -e /dev/tty ]; then
+        read -r "$@" < /dev/tty
+    else
+        read -r "$@"
+    fi
+}
+
 # --- RUTAS CANDIDATAS PREDETERMINADAS ---
 STEAM_PATHS=(
     "$HOME/.local/share/Steam"
@@ -228,7 +239,7 @@ configurar_rutas() {
         echo -e "${P}  \e[1;33m$(( ${#DETECTED_ENTORNOS_NOMBRES[@]} + 1 ))\e[0m) Introducir rutas manualmente"
         
         echo -ne "\n${P}\e[1;37mElige una opción (1-$(( ${#DETECTED_ENTORNOS_NOMBRES[@]} + 1 ))):\e[0m "
-        read -r opcion_env
+        leer_teclado opcion_env
         
         if [ "$opcion_env" -ge 1 ] && [ "$opcion_env" -le "${#DETECTED_ENTORNOS_NOMBRES[@]}" ] 2>/dev/null; then
             STEAM_LIBRARY="${DETECTED_ENTORNOS_LIBS[$((opcion_env-1))]}"
@@ -239,7 +250,7 @@ configurar_rutas() {
     if [ -z "$STEAM_LIBRARY" ]; then
         echo -e "\n${P}\e[1;34m💡 PRO-TIP:\e[0m Arrastra la carpeta donde instalaste Los Sims 3"
         echo -ne "${P}Ruta del juego o biblioteca: "
-        read -r input_lib
+        leer_teclado input_lib
         STEAM_LIBRARY="${input_lib//\'/}"
         STEAM_LIBRARY="${STEAM_LIBRARY%"${STEAM_LIBRARY##*[![:space:]]}"}"
     fi
@@ -251,7 +262,7 @@ configurar_rutas() {
     echo -e "\n${P}\e[1;32mExcelente.\e[0m Ahora necesitamos la ruta donde guardas tus DLCs de Los Sims 3."
     echo -e "${P}\e[1;34m💡 PRO-TIP:\e[0m Arrastra la carpeta o archivo (.zip/.rar/.7z) de tus DLCs."
     echo -ne "${P}> "
-    read -r input_dlc
+    leer_teclado input_dlc
     input_dlc="${input_dlc//\'/}"
     input_dlc="${input_dlc%"${input_dlc##*[![:space:]]}"}"
     DLC_SOURCE="${input_dlc}"
@@ -586,7 +597,7 @@ except Exception as e:
         echo -e "\n${P}\e[33mSi prefieres descargarlo manualmente: https://anadius.hermietkreeft.site/dlc-unlockers\e[0m"
     fi
     echo -ne "\n${P}Presiona Enter para continuar..."
-    read -r
+    leer_teclado
 }
 
 # --- BÚSQUEDA Y LOCALIZACIÓN DE ARCHIVOS DEL UNLOCKER ---
@@ -627,7 +638,7 @@ localizar_archivos_unlocker() {
     P=$(obtener_padding)
     echo -e "${P}\e[1;33mNo se detectaron los archivos del Unlocker localmente.\e[0m"
     echo -ne "${P}¿Deseas descargarlos automáticamente ahora? (S/n): "
-    read -r resp_down
+    leer_teclado resp_down
     if [[ "$resp_down" =~ ^[Nn]$ ]]; then
         return 1
     fi
@@ -721,7 +732,7 @@ activar_registro_dlcs_ts3() {
         echo -e "${P}\e[1;31m¡Error! No se encontró el registro de Wine en:\e[0m $SYSTEM_REG"
         echo -e "${P}Inicia el juego al menos una vez desde Steam/Heroic para generar el prefijo."
         echo -ne "\n${P}Presiona Enter para continuar..."
-        read -r
+        leer_teclado
         return 1
     fi
 
@@ -951,7 +962,7 @@ if "InstalledDepots" in c:
     echo -e "${P}\e[1;32m✔ Claves completas, mundos y paquetes inyectados exitosamente.\e[0m"
     echo -e "${P}Los Sims 3 Launcher y el motor del juego reconocerán todas las expansiones."
     echo -ne "\n${P}Presiona Enter para continuar..."
-    read -r
+    leer_teclado
 }
 
 # --- OPTIMIZACIÓN INTELIGENTE DE GRÁFICOS Y RENDIMIENTO SEGÚN HARDWARE ---
@@ -971,7 +982,7 @@ optimizar_rendimiento_ts3() {
     if [ ! -f "$gr_file" ]; then
         echo -e "${P}\e[1;31m¡Error! No se encontró GraphicsRules.sgr en:\e[0m $bin_dir"
         echo -ne "\n${P}Presiona Enter para continuar..."
-        read -r
+        leer_teclado
         return 1
     fi
 
@@ -1051,7 +1062,7 @@ EOF
 
     echo -e "\n${P}\e[1;32m¡Optimización personalizada completada con éxito!\e[0m"
     echo -ne "\n${P}Presiona Enter para continuar..."
-    read -r
+    leer_teclado
 }
 
 # --- ABRIR CARPETA MODS DE LOS SIMS 3 ---
@@ -1081,7 +1092,7 @@ abrir_carpeta_mods_ts3() {
     fi
 
     echo -ne "\n${P}Presiona Enter para volver al menú principal..."
-    read -r
+    leer_teclado
 }
 
 # --- DIAGNÓSTICO DE DLCS E INTEGRIDAD ---
@@ -1142,7 +1153,7 @@ diagnosticar_dlcs_ts3() {
     fi
 
     echo -ne "\n${P}Presiona Enter para continuar..."
-    read -r
+    leer_teclado
 }
 
 # --- LIMPIADOR DE CACHÉ DE LOS SIMS 3 ---
@@ -1160,7 +1171,7 @@ limpiar_cache_ts3() {
     if [ ! -d "$doc_dir" ]; then
         echo -e "${P}\e[1;33mAviso:\e[0m No se encontró la carpeta de documentos en:\n${P}$doc_dir\n"
         echo -ne "${P}Presiona Enter para continuar..."
-        read -r
+        leer_teclado
         return 0
     fi
 
@@ -1184,7 +1195,7 @@ limpiar_cache_ts3() {
     echo -e "\n${P}\e[1;32m¡Limpieza terminada! Se purgaron $eliminados elementos de caché.\e[0m"
     echo -e "${P}Esto resuelve problemas de carga infinita, sims invisibles y texturas lentas."
     echo -ne "\n${P}Presiona Enter para continuar..."
-    read -r
+    leer_teclado
 }
 
 # --- ACCESO DIRECTO EN ESCRITORIO Y MENÚ DE APLICACIONES ---
@@ -1245,7 +1256,7 @@ EOF_DESK
 
     echo -e "${P}\e[1;32m✔ Acceso directo creado en tu menú de aplicaciones y en el Escritorio.\e[0m"
     echo -ne "\n${P}Presiona Enter para continuar..."
-    read -r
+    leer_teclado
 }
 
 # --- ASESINO DE PROCESOS COLGADOS ---
@@ -1267,7 +1278,7 @@ matar_procesos_colgados_ts3() {
     pkill -9 -u "$USER" -f "TSLHelper.exe" > /dev/null 2>&1
     echo -e "${P}\e[1;32m✔ ¡Limpieza completada! El botón de Steam volverá a responder en verde.\e[0m"
     echo -ne "\n${P}Presiona Enter para continuar..."
-    read -r
+    leer_teclado
 }
 
 # --- SECCIÓN ACERCA DE & CHANGELOG ---
@@ -1304,7 +1315,7 @@ mostrar_acerca_de_ts3() {
     echo -e "${P}    • Inyección de registro de las 11 Expansiones y 9 Accesorios."
     echo -e "\n${P}\e[1;36m────────────────────────────────────────────────────────────────\e[0m"
     echo -ne "\n${P}Presiona Enter para volver al menú principal..."
-    read -r
+    leer_teclado
 }
 
 # --- MENÚ PRINCIPAL ---
@@ -1332,9 +1343,17 @@ while true; do
     echo ""
     echo -e "${P}\e[1;36m────────────────────────────────────────────────────────────────\e[0m"
     echo -ne "${P}\e[1;33m👉 Elige una opción (0-11):\e[0m "
-    read -r opcion
+    leer_teclado opcion
+
+    if [ -z "$opcion" ] && [ ! -t 0 ] && [ ! -e /dev/tty ]; then
+        echo -e "\n${P}\e[31mNo se detectó entrada interactiva. Saliendo...\e[0m"
+        exit 1
+    fi
 
     case $opcion in
+        "")
+            continue
+            ;;
         1)
             echo -e "\n${P}\e[1;33m[Iniciando instalación / organización inteligente de DLCs de TS3...]\e[0m"
             mkdir -p "$SIMS_DIR"
@@ -1402,7 +1421,7 @@ while true; do
                 if ! command -v 7z &> /dev/null; then
                     echo -e "\n${P}\e[31m¡Error! No tienes '7z' instalado en tu sistema.\e[0m"
                     echo -ne "\n${P}Presiona Enter para continuar..."
-                    read -r
+                    leer_teclado
                     continue
                 fi
                 echo -e "${P}Modo Archivo único detectado. Descomprimiendo en: \e[36m$SIMS_DIR\e[0m\n"
@@ -1417,7 +1436,7 @@ while true; do
             fi
 
             echo -ne "\n${P}Presiona Enter para continuar..."
-            read -r
+            leer_teclado
             ;;
 
         2)
