@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # ==============================================================================
-#   💎 Fix Sims 3 Linux (Edición Comunitaria) v2.0
+#   💎 Fix Sims 3 Linux (Edición Comunitaria) v2.2
 #   Soporta Steam, Steam Deck, Lutris, Bottles, Heroic & Wine
 #   Compatible con Juego Base Steam, EA App y versiones Standalone
 #   Desarrollado por Jeff Cortez (github.com/JeffCortez23)
