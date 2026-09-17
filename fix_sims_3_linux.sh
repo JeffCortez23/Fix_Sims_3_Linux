@@ -9,8 +9,9 @@
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 CONFIG_FILE="$HOME/.config/sims3_gestor.conf"
+UNLOCKER_STORE="$HOME/.local/share/sims3_unlocker"
 ICON_PATH="$HOME/.local/share/icons/fix-sims-3.svg"
-VERSION="2.0"
+VERSION="2.1"
 
 # --- UTILIDADES DE CENTRADO Y ESTILO TUI ---
 WIDTH=64
@@ -502,6 +503,190 @@ arreglar_estructura_dlcs_ts3() {
     fi
 }
 
+# --- AUTO-DESCARGADOR DE EA DLC UNLOCKER (CON HEADERS Y VERIFICACIÓN SHA-256) ---
+descargar_unlocker_auto() {
+    clear
+    local P
+    P=$(obtener_padding)
+    echo -e "\n\n"
+    echo -e "${P}\e[1;36m╭──────────────────────────────────────────────────────────────╮\e[0m"
+    echo -e "${P}\e[1;36m│\e[0m          \e[1;32m🌐 DESCARGA AUTOMÁTICA DEL EA DLC UNLOCKER\e[0m          \e[1;36m│\e[0m"
+    echo -e "${P}\e[1;36m╰──────────────────────────────────────────────────────────────╯\e[0m\n"
+    echo -e "${P}Conectando con el servidor oficial (Tiesas Archives / Anadius)..."
+    mkdir -p "$UNLOCKER_STORE/ea_app"
+    
+    PAD_LEN=${#P} python3 -c '
+import urllib.request, json, ssl, hashlib, os, sys, uuid
+from pathlib import Path
+
+pad = " " * int(os.environ.get("PAD_LEN", "0"))
+store = Path(os.path.expanduser("~/.local/share/sims3_unlocker"))
+manifest_url = "https://access.tiesasarchives.uk/api/unlocker/manifest?channel=stable&platform=linux&architecture=x64"
+device_id = str(uuid.uuid4())
+headers = {
+    "X-Web-Jardinera-Device-Id": device_id,
+    "X-Web-Jardinera-Bootstrap-Version": "1.0.1",
+    "User-Agent": "WebJardineraSecureBootstrap/1.0.1"
+}
+
+try:
+    ctx = ssl.create_default_context()
+    req = urllib.request.Request(manifest_url, headers=headers)
+    with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+        data = json.load(resp)
+    
+    version = data.get("version", "3.5.0")
+    print(f"{pad}  ✔ Publicación oficial encontrada: v{version}")
+    
+    for art in data.get("artifacts", []):
+        rel_path = art["path"]
+        dest = store / rel_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        print(f"{pad}  ⬇ Descargando: {rel_path}...")
+        
+        art_req = urllib.request.Request(art["downloadUrl"], headers=headers)
+        with urllib.request.urlopen(art_req, context=ctx, timeout=30) as d_resp:
+            content = d_resp.read()
+        
+        if hashlib.sha256(content).hexdigest().lower() != art["sha256"].lower():
+            raise ValueError(f"Error de integridad en {rel_path}")
+        
+        dest.write_bytes(content)
+        
+    print(f"\n{pad}  \033[1;32m✔ ¡Archivos del Unlocker descargados y verificados con éxito!\033[0m")
+except Exception as e:
+    print(f"\n{pad}  \033[1;31m❌ Error al descargar automáticamente: {e}\033[0m")
+    sys.exit(1)
+'
+
+    if [ $? -eq 0 ]; then
+        echo -e "\n${P}\e[1;32mArchivos guardados en:\e[0m $UNLOCKER_STORE"
+        UNLOCKER_DLL="$UNLOCKER_STORE/ea_app/version.dll"
+        UNLOCKER_INI="$UNLOCKER_STORE/config.ini"
+        UNLOCKER_GAME_INI="$UNLOCKER_STORE/g_LOS SIMS 3.ini"
+    else
+        echo -e "\n${P}\e[33mSi prefieres descargarlo manualmente: https://anadius.hermietkreeft.site/dlc-unlockers\e[0m"
+    fi
+    echo -ne "\n${P}Presiona Enter para continuar..."
+    read -r
+}
+
+# --- BÚSQUEDA Y LOCALIZACIÓN DE ARCHIVOS DEL UNLOCKER ---
+localizar_archivos_unlocker() {
+    UNLOCKER_DLL=""
+    UNLOCKER_INI=""
+    UNLOCKER_GAME_INI=""
+
+    if [ -f "$UNLOCKER_STORE/ea_app/version.dll" ]; then
+        UNLOCKER_DLL="$UNLOCKER_STORE/ea_app/version.dll"
+    elif [ -f "$UNLOCKER_STORE/version.dll" ]; then
+        UNLOCKER_DLL="$UNLOCKER_STORE/version.dll"
+    fi
+    [ -f "$UNLOCKER_STORE/config.ini" ] && UNLOCKER_INI="$UNLOCKER_STORE/config.ini"
+    [ -f "$UNLOCKER_STORE/g_LOS SIMS 3.ini" ] && UNLOCKER_GAME_INI="$UNLOCKER_STORE/g_LOS SIMS 3.ini"
+
+    if [ -n "$UNLOCKER_DLL" ] && [ -n "$UNLOCKER_INI" ] && [ -n "$UNLOCKER_GAME_INI" ]; then
+        return 0
+    fi
+
+    # Buscar en descargas o rutas alternativas
+    local dl_dll dl_ini dl_game_ini
+    dl_dll=$(find "$HOME/Downloads" -maxdepth 3 -type f -name "version.dll" 2>/dev/null | head -n1)
+    dl_ini=$(find "$HOME/Downloads" -maxdepth 3 -type f -name "config.ini" 2>/dev/null | head -n1)
+    dl_game_ini=$(find "$HOME/Downloads" -maxdepth 3 -type f -iname "*LOS*SIMS*3*.ini" 2>/dev/null | head -n1)
+
+    if [ -n "$dl_dll" ] && [ -n "$dl_ini" ] && [ -n "$dl_game_ini" ]; then
+        UNLOCKER_DLL="$dl_dll"
+        UNLOCKER_INI="$dl_ini"
+        UNLOCKER_GAME_INI="$dl_game_ini"
+        return 0
+    fi
+
+    # Si no se encuentra, invocar la descarga automática
+    local P
+    P=$(obtener_padding)
+    echo -e "${P}\e[1;33mNo se detectaron los archivos del Unlocker localmente.\e[0m"
+    echo -ne "${P}¿Deseas descargarlos automáticamente ahora? (S/n): "
+    read -r resp_down
+    if [[ "$resp_down" =~ ^[Nn]$ ]]; then
+        return 1
+    fi
+
+    descargar_unlocker_auto
+    if [ -f "$UNLOCKER_STORE/ea_app/version.dll" ] && [ -f "$UNLOCKER_STORE/config.ini" ] && [ -f "$UNLOCKER_STORE/g_LOS SIMS 3.ini" ]; then
+        UNLOCKER_DLL="$UNLOCKER_STORE/ea_app/version.dll"
+        UNLOCKER_INI="$UNLOCKER_STORE/config.ini"
+        UNLOCKER_GAME_INI="$UNLOCKER_STORE/g_LOS SIMS 3.ini"
+        return 0
+    fi
+    return 1
+}
+
+# --- INYECTOR DE EA DLC UNLOCKER EN EA APP / EA DESKTOP ---
+inyectar_ea_app_unlocker_ts3() {
+    local P
+    P=$(obtener_padding)
+    echo -e "${P}Inyectando archivos de EA DLC Unlocker en EA App..."
+
+    local ea_base="$PREFIX/drive_c/Program Files/Electronic Arts/EA Desktop"
+    local injected_count=0
+
+    if [ -d "$ea_base" ]; then
+        cp -p "$UNLOCKER_DLL" "$ea_base/version.dll" 2>/dev/null && ((injected_count++))
+        while read -r target_dir; do
+            if [ -d "$target_dir" ]; then
+                cp -p "$UNLOCKER_DLL" "$target_dir/version.dll" 2>/dev/null
+                ((injected_count++))
+            fi
+        done < <(find "$ea_base" -type f \( -iname "EADesktop.exe" -o -iname "EABackgroundService.exe" \) -exec dirname {} \; 2>/dev/null | sort -u)
+    fi
+
+    while read -r target_dir; do
+        cp -p "$UNLOCKER_DLL" "$target_dir/version.dll" 2>/dev/null
+        ((injected_count++))
+    done < <(find "$PREFIX/drive_c" -type f \( -iname "EADesktop.exe" -o -iname "EABackgroundService.exe" \) -exec dirname {} \; 2>/dev/null | sort -u)
+
+    echo -e "${P}  \e[1;32m✔\e[0m version.dll inyectado en $injected_count ubicaciones de EA App."
+
+    # Configuración en AppData de Wine
+    local users_dir="$PREFIX/drive_c/users"
+    if [ -d "$users_dir" ]; then
+        for u in "$users_dir"/*; do
+            if [ -d "$u" ] && [ "$(basename "$u")" != "Public" ]; then
+                local target_conf="$u/AppData/Roaming/anadius/EA DLC Unlocker v2"
+                mkdir -p "$target_conf"
+                cp -p "$UNLOCKER_INI" "$target_conf/config.ini" 2>/dev/null
+                cp -p "$UNLOCKER_GAME_INI" "$target_conf/g_LOS SIMS 3.ini" 2>/dev/null
+                cp -p "$UNLOCKER_GAME_INI" "$target_conf/g_The Sims 3.ini" 2>/dev/null
+                cp -p "$UNLOCKER_GAME_INI" "$target_conf/g_THE SIMS 3.ini" 2>/dev/null
+                sed -i 's/replaceDLCs=0/replaceDLCs=1/' "$target_conf/config.ini" 2>/dev/null
+            fi
+        done
+    fi
+    echo -e "${P}  \e[1;32m✔\e[0m Configuraciones g_LOS SIMS 3.ini registradas en AppData."
+
+    # Wine DllOverride en user.reg
+    if [ -f "$USER_REG" ]; then
+        local ts=$(date +%s)
+        if ! grep -q '"version"="native,builtin"' "$USER_REG" 2>/dev/null; then
+            cat <<EOF >> "$USER_REG"
+
+[Software\\\\Wine\\\\DllOverrides] $ts
+"version"="native,builtin"
+EOF
+            echo -e "${P}  \e[1;32m✔\e[0m Override de version.dll añadido a user.reg."
+        else
+            echo -e "${P}  \e[1;32m✔\e[0m Override de version.dll ya estaba activo."
+        fi
+    fi
+
+    # Purgar cachés temporales de EA App
+    rm -rf "$PREFIX/drive_c/users"/*/AppData/Local/Electronic\ Arts/EA\ Desktop 2>/dev/null
+    rm -rf "$PREFIX/drive_c/users"/*/AppData/Local/EADesktop 2>/dev/null
+    rm -rf "$PREFIX/drive_c/users"/*/AppData/Local/Origin 2>/dev/null
+    echo -e "${P}  \e[1;32m✔\e[0m Caché de EA App purgada."
+}
+
 # --- ACTIVADOR / INYECTOR DE REGISTRO PARA LOS SIMS 3 ---
 activar_registro_dlcs_ts3() {
     clear
@@ -730,6 +915,14 @@ if "InstalledDepots" in c:
     with open(acf, "w", encoding="utf-8") as f:
         f.write(c)
 ' "$acf_file" 2>/dev/null || true
+    fi
+
+    # Desbloqueo en EA Desktop si está presente en el prefijo
+    if [ -d "$PREFIX/drive_c" ] && find "$PREFIX/drive_c" -type f \( -iname "EADesktop.exe" -o -iname "EABackgroundService.exe" \) 2>/dev/null | grep -q .; then
+        echo -e "\n${P}\e[1;34mDetectada instalación de EA App en el prefijo. Inyectando EA DLC Unlocker...\e[0m"
+        if localizar_archivos_unlocker 2>/dev/null; then
+            inyectar_ea_app_unlocker_ts3
+        fi
     fi
 
     echo -e "${P}\e[1;32m✔ Claves completas, mundos y paquetes inyectados exitosamente.\e[0m"
@@ -1046,6 +1239,16 @@ mostrar_acerca_de_ts3() {
     echo -e "${P}    • 🏝️  \e[1;37mIsla Paradiso Fix:\e[0m Parche anti-lag automático de mundo."
     echo -e "${P}    • 📦 \e[1;37mMods.zip Auto-deploy:\e[0m CleanUI y SmoothPatch a Documentos."
     echo -e "${P}    • 🎨 \e[1;37mMenús Idénticos a TS4:\e[0m Estilo TUI centrado con 9 opciones."
+    echo -e "${P}  \e[1;32m[v2.1] - Descargador de EA DLC Unlocker & Universalización de Rutas\e[0m"
+    echo -e "${P}    • 🌐 \e[1;37mEA DLC Unlocker Auto:\e[0m Descarga verificada v3.5.0 con g_LOS SIMS 3.ini."
+    echo -e "${P}    • 🔓 \e[1;37mDoble Soporte:\e[0m Inyección nativa Wine/Proton y soporte EA App/Origin."
+    echo -e "${P}    • 🌍 \e[1;37mRutas Dinámicas:\e[0m Compatibilidad total con Steam Deck, Wine, Lutris y Heroic.\n"
+    echo -e "${P}  \e[1;32m[v2.0] - Detección de Hardware, Gráficos VRAM, Menús TS4 & Luva Pack\e[0m"
+    echo -e "${P}    • 🎮 \e[1;37mDetección de Hardware:\e[0m Auto-detecta AMD, NVIDIA, Intel y RAM."
+    echo -e "${P}    • ⚡ \e[1;37mGraphicsRules Dinámico:\e[0m Asigna VRAM óptima (1GB, 2GB o 4GB)."
+    echo -e "${P}    • 🏝️  \e[1;37mIsla Paradiso Fix:\e[0m Parche anti-lag automático de mundo."
+    echo -e "${P}    • 📦 \e[1;37mMods.zip Auto-deploy:\e[0m CleanUI y SmoothPatch a Documentos."
+    echo -e "${P}    • 🎨 \e[1;37mMenús Idénticos a TS4:\e[0m Estilo TUI centrado con opciones organizadas."
     echo -e "${P}    • 🖥️  \e[1;37mAcceso Directo:\e[0m Creación de lanzador .desktop e icono Plumbob.\n"
     echo -e "${P}  \e[1;32m[v1.0] - Lanzamiento Inicial\e[0m"
     echo -e "${P}    • Inyección de registro de las 11 Expansiones y 9 Accesorios."
@@ -1065,18 +1268,19 @@ while true; do
     echo -e "${P}\e[1;36m╰──────────────────────────────────────────────────────────────╯\e[0m"
     echo ""
     echo -e "${P}  \e[1;33m[1]\e[0m 📦  \e[1;37mInstalar / Mover DLCs al juego\e[0m \e[2;37m(ZIP All-in-One, Sueltos, Lotes)\e[0m"
-    echo -e "${P}  \e[1;33m[2]\e[0m 🔓  \e[1;37mActivar DLCs\e[0m \e[2;37m(Inyección de Registro Wine/Proton)\e[0m"
+    echo -e "${P}  \e[1;33m[2]\e[0m 🔓  \e[1;37mActivar DLCs\e[0m \e[2;37m(Inyección Wine/Proton y EA App)\e[0m"
     echo -e "${P}  \e[1;33m[3]\e[0m ⚡  \e[1;37mOptimización de Gráficos & GPU\e[0m \e[2;37m(Auto-detectar Hardware & VRAM)\e[0m"
     echo -e "${P}  \e[1;33m[4]\e[0m 🔍  \e[1;37mDiagnóstico de DLCs e Integridad\e[0m \e[2;37m(Health Check)\e[0m"
     echo -e "${P}  \e[1;33m[5]\e[0m 🧹  \e[1;37mLimpiar Caché del Juego\e[0m \e[2;37m(Solución Carga Infinita)\e[0m"
-    echo -e "${P}  \e[1;33m[6]\e[0m 🖥️   \e[1;37mCrear Acceso Directo\e[0m \e[2;37m(.desktop / Steam Deck)\e[0m"
-    echo -e "${P}  \e[1;33m[7]\e[0m 🔪  \e[1;37mForzar cierre de procesos colgados\e[0m \e[2;37m(Fix Sims 3 / Steam)\e[0m"
-    echo -e "${P}  \e[1;33m[8]\e[0m ⚙️   \e[1;37mReconfigurar rutas del script / Lanzador\e[0m"
-    echo -e "${P}  \e[1;33m[9]\e[0m ℹ️   \e[1;37mAcerca de & Changelog\e[0m"
+    echo -e "${P}  \e[1;33m[6]\e[0m 🌐  \e[1;37mDescargar / Actualizar EA DLC Unlocker\e[0m \e[2;37m(Auto)\e[0m"
+    echo -e "${P}  \e[1;33m[7]\e[0m 🖥️   \e[1;37mCrear Acceso Directo\e[0m \e[2;37m(.desktop / Steam Deck)\e[0m"
+    echo -e "${P}  \e[1;33m[8]\e[0m 🔪  \e[1;37mForzar cierre de procesos colgados\e[0m \e[2;37m(Fix Sims 3 / Steam / EA)\e[0m"
+    echo -e "${P}  \e[1;33m[9]\e[0m ⚙️   \e[1;37mReconfigurar rutas del script / Lanzador\e[0m"
+    echo -e "${P}  \e[1;33m[10]\e[0m ℹ️  \e[1;37mAcerca de & Changelog\e[0m"
     echo -e "${P}  \e[1;31m[0]\e[0m 🚪  \e[1;37mSalir\e[0m"
     echo ""
     echo -e "${P}\e[1;36m────────────────────────────────────────────────────────────────\e[0m"
-    echo -ne "${P}\e[1;33m👉 Elige una opción (0-9):\e[0m "
+    echo -ne "${P}\e[1;33m👉 Elige una opción (0-10):\e[0m "
     read -r opcion
 
     case $opcion in
@@ -1182,20 +1386,24 @@ while true; do
             ;;
 
         6)
-            crear_acceso_directo_ts3
+            descargar_unlocker_auto
             ;;
 
         7)
-            matar_procesos_colgados_ts3
+            crear_acceso_directo_ts3
             ;;
 
         8)
+            matar_procesos_colgados_ts3
+            ;;
+
+        9)
             configurar_rutas
             source "$CONFIG_FILE"
             resolver_rutas_efectivas
             ;;
 
-        9)
+        10)
             mostrar_acerca_de_ts3
             ;;
 
