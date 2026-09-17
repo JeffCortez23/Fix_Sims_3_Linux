@@ -595,17 +595,19 @@ localizar_archivos_unlocker() {
     UNLOCKER_INI=""
     UNLOCKER_GAME_INI=""
 
-    if [ -f "$UNLOCKER_STORE/ea_app/version.dll" ]; then
-        UNLOCKER_DLL="$UNLOCKER_STORE/ea_app/version.dll"
-    elif [ -f "$UNLOCKER_STORE/version.dll" ]; then
-        UNLOCKER_DLL="$UNLOCKER_STORE/version.dll"
-    fi
-    [ -f "$UNLOCKER_STORE/config.ini" ] && UNLOCKER_INI="$UNLOCKER_STORE/config.ini"
-    [ -f "$UNLOCKER_STORE/g_LOS SIMS 3.ini" ] && UNLOCKER_GAME_INI="$UNLOCKER_STORE/g_LOS SIMS 3.ini"
+    for base in "$UNLOCKER_STORE" "$SCRIPT_DIR"; do
+        if [ -f "$base/ea_app/version.dll" ]; then
+            UNLOCKER_DLL="$base/ea_app/version.dll"
+        elif [ -f "$base/version.dll" ]; then
+            UNLOCKER_DLL="$base/version.dll"
+        fi
+        [ -f "$base/config.ini" ] && UNLOCKER_INI="$base/config.ini"
+        [ -f "$base/g_LOS SIMS 3.ini" ] && UNLOCKER_GAME_INI="$base/g_LOS SIMS 3.ini"
 
-    if [ -n "$UNLOCKER_DLL" ] && [ -n "$UNLOCKER_INI" ] && [ -n "$UNLOCKER_GAME_INI" ]; then
-        return 0
-    fi
+        if [ -n "$UNLOCKER_DLL" ] && [ -n "$UNLOCKER_INI" ] && [ -n "$UNLOCKER_GAME_INI" ]; then
+            return 0
+        fi
+    done
 
     # Buscar en descargas o rutas alternativas
     local dl_dll dl_ini dl_game_ini
