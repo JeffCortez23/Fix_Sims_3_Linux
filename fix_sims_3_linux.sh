@@ -850,14 +850,17 @@ def clean_and_inject(reg_path, is_system=True):
 clean_and_inject(system_reg, is_system=True)
 clean_and_inject(user_reg, is_system=False)
 
-# Enlace de mundos de expansiones (.world)
+# Enlace de mundos de expansiones (.world) y mundos de la Store (Mundos Especiales)
 base_worlds = os.path.join(sims_dir, "GameData", "Shared", "NonPackaged", "Worlds")
 installed_worlds = os.path.join(doc_ts3, "InstalledWorlds")
 os.makedirs(installed_worlds, exist_ok=True)
 os.makedirs(base_worlds, exist_ok=True)
 
-ep_worlds = glob.glob(os.path.join(sims_dir, "EP*", "GameData", "Shared", "NonPackaged", "Worlds", "*.world"))
-for w in ep_worlds:
+all_worlds = glob.glob(os.path.join(sims_dir, "EP*", "GameData", "Shared", "NonPackaged", "Worlds", "*.world"))
+all_worlds += glob.glob(os.path.join(doc_ts3, "Mods", "Mundos Especiales", "*.world"))
+all_worlds += glob.glob(os.path.join(doc_ts3, "Mods", "Packages", "*.world"))
+
+for w in all_worlds:
     bname = os.path.basename(w)
     dest1 = os.path.join(base_worlds, bname)
     dest2 = os.path.join(installed_worlds, bname)
