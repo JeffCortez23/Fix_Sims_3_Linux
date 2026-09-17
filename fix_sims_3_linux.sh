@@ -273,34 +273,199 @@ fi
 
 source "$CONFIG_FILE"
 
-# Resolver carpeta raíz del juego
-if [ -d "$STEAM_LIBRARY/steamapps/common/The Sims 3" ]; then
-    SIMS_DIR="$STEAM_LIBRARY/steamapps/common/The Sims 3"
-elif [ -d "$STEAM_LIBRARY" ] && [[ "$STEAM_LIBRARY" =~ (The Sims 3|Los Sims 3) ]]; then
-    SIMS_DIR="$STEAM_LIBRARY"
-else
-    SIMS_DIR="$STEAM_LIBRARY/steamapps/common/The Sims 3"
-fi
+# --- RESOLUCIÓN Y DETECCIÓN GLOBAL DE RUTAS ---
+resolver_rutas_efectivas() {
+    if [ -f "$STEAM_LIBRARY/Game/Bin/TS3.exe" ] || [ -f "$STEAM_LIBRARY/Game/Bin/TS3W.exe" ]; then
+        SIMS_DIR="$STEAM_LIBRARY"
+    elif [ -d "$STEAM_LIBRARY/steamapps/common/The Sims 3" ]; then
+        SIMS_DIR="$STEAM_LIBRARY/steamapps/common/The Sims 3"
+    elif [ -d "$STEAM_LIBRARY" ] && [[ "$STEAM_LIBRARY" =~ (The Sims 3|Los Sims 3) ]]; then
+        SIMS_DIR="$STEAM_LIBRARY"
+    else
+        SIMS_DIR="$STEAM_LIBRARY/steamapps/common/The Sims 3"
+    fi
 
-# Resolver prefijo Proton/Wine de forma segura
-if [ -f "$STEAM_COMPATDATA/system.reg" ] || [ -f "$STEAM_COMPATDATA/user.reg" ] || [ -d "$STEAM_COMPATDATA/drive_c" ]; then
-    PREFIX="$STEAM_COMPATDATA"
-elif [ -d "$STEAM_COMPATDATA/pfx" ]; then
-    PREFIX="$STEAM_COMPATDATA/pfx"
-elif [ -d "$STEAM_COMPATDATA/steamapps/compatdata/47890/pfx" ]; then
-    PREFIX="$STEAM_COMPATDATA/steamapps/compatdata/47890/pfx"
-else
-    PREFIX="$STEAM_COMPATDATA"
-fi
+    if [ -f "$STEAM_COMPATDATA/system.reg" ] || [ -f "$STEAM_COMPATDATA/user.reg" ] || [ -d "$STEAM_COMPATDATA/drive_c" ]; then
+        PREFIX="$STEAM_COMPATDATA"
+    elif [ -d "$STEAM_COMPATDATA/pfx" ]; then
+        PREFIX="$STEAM_COMPATDATA/pfx"
+    elif [ -d "$STEAM_COMPATDATA/steamapps/compatdata/47890/pfx" ]; then
+        PREFIX="$STEAM_COMPATDATA/steamapps/compatdata/47890/pfx"
+    else
+        PREFIX="$STEAM_COMPATDATA"
+    fi
 
-SYSTEM_REG="$PREFIX/system.reg"
-USER_REG="$PREFIX/user.reg"
+    SYSTEM_REG="$PREFIX/system.reg"
+    USER_REG="$PREFIX/user.reg"
+}
+
+resolver_rutas_efectivas
+
+# Obtener ruta de Documentos/Electronic Arts/The Sims 3 dentro del prefijo Wine (Universal)
+obtener_ruta_documentos_ts3() {
+    local target_dir=""
+    if [ -d "$PREFIX/drive_c/users" ]; then
+        for u in "$PREFIX/drive_c/users/"*; do
+            [ -d "$u" ] || continue
+            local bname
+            bname=$(basename "$u")
+            [[ "$bname" =~ ^(Public|Default|default)$ ]] && continue
+            for sub in "Documents/Electronic Arts/The Sims 3" "My Documents/Electronic Arts/The Sims 3" "Documentos/Electronic Arts/The Sims 3"; do
+                if [ -d "$u/$sub" ]; then
+                    target_dir="$u/$sub"
+                    break 2
+                fi
+            done
+        done
+        
+        if [ -z "$target_dir" ]; then
+            for u in "$PREFIX/drive_c/users/"*; do
+                [ -d "$u" ] || continue
+                local bname
+                bname=$(basename "$u")
+                [[ "$bname" =~ ^(Public|Default|default)$ ]] && continue
+                if [ -d "$u/Documents" ]; then
+                    target_dir="$u/Documents/Electronic Arts/The Sims 3"
+                    break
+                fi
+            done
+        fi
+    fi
+    
+    if [ -z "$target_dir" ]; then
+        target_dir="$PREFIX/drive_c/users/steamuser/Documents/Electronic Arts/The Sims 3"
+    fi
+    mkdir -p "$target_dir"
+    echo "$target_dir"
+}
+
+# Asegurar mapeo de unidades virtuales y enlaces necesarios en Wine/Proton
+asegurar_enlaces_wine_drives() {
+    local P
+    P=$(obtener_padding)
+    mkdir -p "$PREFIX/dosdevices"
+    
+    # 1. Enlazar unidad s: hacia la biblioteca de Steam / juego si no existe
+    if [ ! -e "$PREFIX/dosdevices/s:" ]; then
+        local steam_root="$STEAM_LIBRARY"
+        if [ -d "$steam_root" ]; then
+            ln -snf "$steam_root" "$PREFIX/dosdevices/s:" 2>/dev/null || true
+            echo -e "${P}  \e[1;32m✔\e[0m Unidad virtual Wine S: enlazada a $steam_root"
+        fi
+    fi
+    
+    # 2. Enlazar carpeta steamapps/common dentro de drive_c de Steam si aplica
+    local c_steam_apps="$PREFIX/drive_c/Program Files (x86)/Steam/steamapps"
+    if [ -d "$STEAM_LIBRARY/steamapps/common" ]; then
+        mkdir -p "$c_steam_apps"
+        if [ ! -e "$c_steam_apps/common" ]; then
+            ln -snf "$STEAM_LIBRARY/steamapps/common" "$c_steam_apps/common" 2>/dev/null || true
+            echo -e "${P}  \e[1;32m✔\e[0m Enlace C:\\Program Files (x86)\\Steam\\steamapps\\common configurado"
+        fi
+    fi
+}
+
+# Reparación de archivos esenciales en paquetes de expansiones (Default.ini, ejecutables, mayúsculas/minúsculas)
+reparar_archivos_arranque_packs() {
+    local target_dir="$1"
+    local P
+    P=$(obtener_padding)
+    
+    # Fix mayúsculas/minúsculas en EP07
+    if [ -f "$target_dir/EP07/Game/Bin/default.ini" ] && [ ! -f "$target_dir/EP07/Game/Bin/Default.ini" ]; then
+        cp -p "$target_dir/EP07/Game/Bin/default.ini" "$target_dir/EP07/Game/Bin/Default.ini" 2>/dev/null || true
+    fi
+
+    # Fix EP03 (Al Caer la Noche) si falta Default.ini
+    if [ -d "$target_dir/EP03" ] && [ ! -f "$target_dir/EP03/Game/Bin/Default.ini" ]; then
+        mkdir -p "$target_dir/EP03/Game/Bin"
+        cat << 'EOF_DEF' > "$target_dir/EP03/Game/Bin/Default.ini"
+[Input]
+MouseWheelThreshold=0.14
+MouseWheelHysteresis=0.06
+
+[Script]
+Multithreaded=1
+HeapSize = 30720
+
+[Resources]
+CacheBudget=209715200
+
+[FrameDatabase]
+BlockSize=30720
+
+[CAS]
+CompositorCacheSize = 104857600
+SimCompositorCacheSize = 524288000
+WorldCompositorCacheSize = 524288000
+SimWorldCompositorCacheSize = 524288000
+
+[Config:Win32]
+
+[Config]
+DBCacheSubdirName = DCCache
+DBCacheMaxSizeMB = 200
+CrashDumpLocation = \\cerberus\CrashDumps\Sims3
+ExportBinSubdirName = Library
+InstalledWorldsSubdirName = InstalledWorlds
+Security = 0
+
+[CustomContent]
+EnableCustomContent = true
+ExportsFolderName = Exports
+ImportsFolderName = Downloads
+BackupFolderName  = DCBackup
+PackageThumbnails = false
+PackageThumbnailsInSims3Pac = true
+DeleteTempExportFolder = true
+EOF_DEF
+    fi
+
+    # Asegurar que cada EP y SP tenga un ejecutable en Game/Bin al que apuntar en el registro
+    local base_exe=""
+    if [ -f "$target_dir/Game/Bin/TS3W.exe" ]; then
+        base_exe="$target_dir/Game/Bin/TS3W.exe"
+    elif [ -f "$target_dir/Game/Bin/TS3.exe" ]; then
+        base_exe="$target_dir/Game/Bin/TS3.exe"
+    fi
+
+    if [ -n "$base_exe" ]; then
+        for pack in "${LISTA_EP[@]}" "${LISTA_SP[@]}"; do
+            if [ -d "$target_dir/$pack" ]; then
+                mkdir -p "$target_dir/$pack/Game/Bin"
+                local pack_exe="$target_dir/$pack/Game/Bin/TS3$pack.exe"
+                if [ ! -f "$pack_exe" ]; then
+                    ln -sf "$base_exe" "$pack_exe" 2>/dev/null || cp -p "$base_exe" "$pack_exe" 2>/dev/null || true
+                fi
+            fi
+        done
+    fi
+}
+
+# Búsqueda universal de archivos de parches o descargas
+buscar_archivo_descarga() {
+    local pattern="$1"
+    local found=""
+    if [ -d "$DLC_SOURCE" ]; then
+        found=$(find "$DLC_SOURCE" -maxdepth 2 -type f -iname "$pattern" 2>/dev/null | head -n1)
+    elif [ -f "$DLC_SOURCE" ]; then
+        local pdir
+        pdir=$(dirname "$DLC_SOURCE")
+        found=$(find "$pdir" -maxdepth 2 -type f -iname "$pattern" 2>/dev/null | head -n1)
+    fi
+    if [ -z "$found" ] && [ -d "$HOME/Downloads" ]; then
+        found=$(find "$HOME/Downloads" -maxdepth 2 -type f -iname "$pattern" 2>/dev/null | head -n1)
+    fi
+    echo "$found"
+}
 
 # --- ORGANIZADOR / APLANADOR DE DLCS PARA LOS SIMS 3 ---
 arreglar_estructura_dlcs_ts3() {
     local target_dir="$1"
     local P
     P=$(obtener_padding)
+    local doc_ts3
+    doc_ts3=$(obtener_ruta_documentos_ts3)
     
     # 1. Si los DLCs se descomprimieron dentro de una subcarpeta "The Sims 3" o "Los Sims 3" o "All in One"
     for sub in "$target_dir/The Sims 3" "$target_dir/Los Sims 3" "$target_dir/all in one" "$target_dir/All in One" "$target_dir/DLCs"; do
@@ -311,9 +476,12 @@ arreglar_estructura_dlcs_ts3() {
         fi
     done
 
-    # 2. Comprobar si el usuario descargó el parche de Isla Paradiso de Luva
+    # 2. Reparar archivos esenciales de packs (Default.ini, exes)
+    reparar_archivos_arranque_packs "$target_dir"
+
+    # 3. Comprobar si el usuario descargó el parche de Isla Paradiso de Luva
     local isla_zip
-    isla_zip=$(find "$HOME/Downloads" -maxdepth 2 -type f -iname "*isla*paradiso*.zip" 2>/dev/null | head -n1)
+    isla_zip=$(buscar_archivo_descarga "*isla*paradiso*.zip")
     if [ -n "$isla_zip" ] && [ -d "$target_dir/EP10" ]; then
         local worlds_dir="$target_dir/EP10/GameData/Shared/NonPackaged/Worlds"
         if [ -d "$worlds_dir" ]; then
@@ -323,10 +491,9 @@ arreglar_estructura_dlcs_ts3() {
         fi
     fi
 
-    # 3. Comprobar si el usuario descargó Mods.zip de Luva (CleanUI, SmoothPatch, Store Packages)
+    # 4. Comprobar si el usuario descargó Mods.zip de Luva (CleanUI, SmoothPatch, Store Packages)
     local mods_zip
-    mods_zip=$(find "$HOME/Downloads" -maxdepth 2 -type f -iname "Mods.zip" 2>/dev/null | head -n1)
-    local doc_ts3="$PREFIX/drive_c/users/steamuser/Documents/Electronic Arts/The Sims 3"
+    mods_zip=$(buscar_archivo_descarga "Mods.zip")
     if [ -n "$mods_zip" ] && [ -d "$doc_ts3" ]; then
         echo -e "${P}Instalando paquete de Mods y Store esenciales de Luva..."
         mkdir -p "$doc_ts3/Mods"
@@ -353,136 +520,199 @@ activar_registro_dlcs_ts3() {
         return 1
     fi
 
-    echo -e "${P}Inyectando claves de activación para todas las expansiones y accesorios..."
+    echo -e "${P}Configurando unidades virtuales y validando estructura de packs..."
+    asegurar_enlaces_wine_drives
+    reparar_archivos_arranque_packs "$SIMS_DIR"
+
+    local doc_ts3
+    doc_ts3=$(obtener_ruta_documentos_ts3)
+
+    echo -e "${P}Inyectando claves maestras de activación (11 Expansiones & 9 Accesorios)..."
     
     # Backup preventivo
     cp "$SYSTEM_REG" "$SYSTEM_REG.bak_$(date +%s)"
+    [ -f "$USER_REG" ] && cp "$USER_REG" "$USER_REG.bak_$(date +%s)"
 
-    local packs_data=(
-        "EP01|The Sims 3 World Adventures|1002|EP01"
-        "EP02|The Sims 3 Ambitions|1003|EP02"
-        "EP03|The Sims 3 Late Night|1004|EP03"
-        "EP04|The Sims 3 Generations|1005|EP04"
-        "EP05|The Sims 3 Pets|1006|EP05"
-        "EP06|The Sims 3 Showtime|1007|EP06"
-        "EP07|The Sims 3 Supernatural|1008|EP07"
-        "EP08|The Sims 3 Seasons|1009|EP08"
-        "EP09|The Sims 3 University Life|1010|EP09"
-        "EP10|The Sims 3 Island Paradise|1011|EP10"
-        "EP11|The Sims 3 Into the Future|1012|EP11"
-        "SP01|The Sims 3 High-End Loft Stuff|1051|SP01"
-        "SP02|The Sims 3 Fast Lane Stuff|1052|SP02"
-        "SP03|The Sims 3 Outdoor Living Stuff|1053|SP03"
-        "SP04|The Sims 3 Town Life Stuff|1054|SP04"
-        "SP05|The Sims 3 Master Suite Stuff|1055|SP05"
-        "SP06|The Sims 3 Sweet Treats|1056|SP06"
-        "SP07|The Sims 3 Diesel Stuff|1057|SP07"
-        "SP08|The Sims 3 70s, 80s, & 90s Stuff|1058|SP08"
-        "SP09|The Sims 3 Movie Stuff|1059|SP09"
-    )
+    python3 - << 'PYEOF' "$SYSTEM_REG" "$USER_REG" "$SIMS_DIR" "$PREFIX" "$doc_ts3"
+import os, sys, re, time, glob
 
-    local ts
-    ts=$(date +%s)
-    local win_game_dir
-    win_game_dir=$(winepath -w "$SIMS_DIR" 2>/dev/null || echo "C:\\Program Files (x86)\\Steam\\steamapps\\common\\The Sims 3")
-    win_game_dir_esc="${win_game_dir//\\/\\\\}"
+system_reg = sys.argv[1]
+user_reg = sys.argv[2]
+sims_dir = sys.argv[3]
+prefix = sys.argv[4]
+doc_ts3 = sys.argv[5]
 
-    for item in "${packs_data[@]}"; do
-        IFS="|" read -r code name prod_id folder <<< "$item"
+dlcs = [
+    ("EP01", "The Sims 3 World Adventures", 0x3ea, "sims3_ep01_sku7", "4V77-74X8-P96F-CP93-HRLD"),
+    ("EP02", "The Sims 3 Ambitions", 0x3eb, "sims3_ep02_sku7", "VJ66-ZW9P-B7V8-WB7S-BRLD"),
+    ("EP03", "The Sims 3 Late Night", 0x3ec, "sims3_ep03_sku7", "3W22-DU2D-J25W-7J23-ZRLD"),
+    ("EP04", "The Sims 3 Generations", 0x3ed, "sims3_ep04_sku7", "4CLL-V8U2-6UFV-555D-W848"),
+    ("EP05", "The Sims 3 Pets", 0x3ee, "sims3_ep05_sku7", "6R22-QY3Z-3Z98-Q3Z6-ARLD"),
+    ("EP06", "The Sims 3 Showtime", 0x3ef, "sims3_ep06_sku7", "8799-H82A-C2N6-NC2K-9RLD"),
+    ("EP07", "The Sims 3 Supernatural", 0x3f0, "sims3_ep07_sku7", "8V88-HMYN-C9W4-TC95-7RLD"),
+    ("EP08", "The Sims 3 Seasons", 0x3f1, "sims3_ep08_sku7", "5W66-8X78-G276-8G25-9RLD"),
+    ("EP09", "The Sims 3 University Life", 0x3f2, "sims3_ep09_sku7", "6U77-T345-2JND-A2JM-GRLD"),
+    ("EP10", "The Sims 3 Island Paradise", 0x3f3, "sims3_ep10_sku7", "8U22-QW4L-4N5Q-54N2-TRLD"),
+    ("EP11", "The Sims 3 Into the Future", 0x3f4, "sims3_ep11_sku7", "4R44-D25U-J6F6-GJ6B-ARLD"),
+    ("SP01", "The Sims 3 High-End Loft Stuff", 0x41b, "sims3_sp01_sku7", "M4DD-Y6XW-Z2T7-4Z2S-9RLD"),
+    ("SP02", "The Sims 3 Fast Lane Stuff", 0x41c, "sims3_sp02_sku7", "V677-Y586-W68F-NW64-JRLD"),
+    ("SP03", "The Sims 3 Outdoor Living Stuff", 0x41d, "sims3_sp03_sku7", "8V22-9NKL-C7S9-AC7R-DRLD"),
+    ("SP04", "The Sims 3 Town Life Stuff", 0x41e, "sims3_sp04_sku7", "7766-3Q75-N5M2-4N5J-6RLD"),
+    ("SP05", "The Sims 3 Master Suite Stuff", 0x41f, "sims3_sp05_sku7", "6M99-KMYV-C68P-UC65-SRLD"),
+    ("SP06", "The Sims 3 Sweet Treats", 0x420, "sims3_sp06_sku7", "Q944-R33N-S6M8-US6K-BRLD"),
+    ("SP07", "The Sims 3 Diesel Stuff", 0x421, "sims3_sp07_sku7", "Q7GG-BMTU-C984-VC95-7RLD"),
+    ("SP08", "The Sims 3 70s, 80s, & 90s Stuff", 0x422, "sims3_sp08_sku7", "9F77-9436-Z7J7-PZ7E-BRLD"),
+    ("SP09", "The Sims 3 Movie Stuff", 0x423, "sims3_sp09_sku7", "M7SS-S6H6-H3C8-W5X5-Y7R6"),
+]
+
+# 1. Determinar ruta de instalación de Windows del juego base
+base_win_dir = ""
+if os.path.isfile(system_reg):
+    with open(system_reg, "r", encoding="utf-8", errors="ignore") as f:
+        in_base = False
+        for line in f:
+            if re.match(r"^\[Software\\\\(?:Wow6432Node\\\\)?(?:Electronic Arts\\\\)?Sims(?:\(Steam\))?\\\\The Sims 3\]", line.strip()):
+                in_base = True
+            elif line.startswith("["):
+                in_base = False
+            elif in_base and '"Install Dir"=' in line:
+                m = re.search(r'"Install Dir"="([^"]+)"', line)
+                if m:
+                    base_win_dir = m.group(1)
+                    break
+
+if not base_win_dir:
+    base_win_dir = "C:\\\\Program Files (x86)\\\\Steam\\\\steamapps\\\\common\\\\The Sims 3"
+
+base_win_dir = base_win_dir.replace("\\\\", "\\").rstrip("\\")
+win_esc = base_win_dir.replace("\\", "\\\\")
+
+def clean_and_inject(reg_path, is_system=True):
+    if not os.path.isfile(reg_path):
+        return
+    with open(reg_path, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.readlines()
+    
+    filtered = []
+    skip = False
+    for line in lines:
+        if line.startswith("["):
+            is_dlc_key = False
+            for pat in [
+                r"^\[Software\\\\(?:Wow6432Node\\\\)?(?:Electronic Arts\\\\)?Sims(?:\(Steam\))?\\\\The Sims 3 .+",
+                r"^\[Software\\\\(?:Wow6432Node\\\\)?Electronic Arts\\\\(?:Sims\(Steam\)\\\\)?The Sims 3 .+"
+            ]:
+                if re.match(pat, line.strip()):
+                    is_dlc_key = True
+                    break
+            skip = is_dlc_key
+        if not skip:
+            filtered.append(line)
+            
+    content = "".join(filtered).rstrip() + "\n\n"
+    ts = int(time.time())
+    
+    pfx_list = ["Software\\\\Sims(Steam)", "Software\\\\Wow6432Node\\\\Sims(Steam)"]
+    if is_system:
+        pfx_list += ["Software\\\\Sims", "Software\\\\Wow6432Node\\\\Sims"]
         
-        local exe_target="$win_game_dir_esc\\\\$folder\\\\Game\\\\Bin\\\\TS3$code.exe"
-        if [ ! -f "$SIMS_DIR/$code/Game/Bin/TS3$code.exe" ]; then
-            exe_target="$win_game_dir_esc\\\\Game\\\\Bin\\\\TS3.exe"
-        fi
+    for code, name, prod_id, content_id, serial in dlcs:
+        pack_dir = os.path.join(sims_dir, code)
+        exe_file = f"TS3{code}.exe"
+        pack_exe_path = os.path.join(pack_dir, "Game", "Bin", exe_file)
+        if not os.path.isfile(pack_exe_path):
+            exe_target = f"{win_esc}\\\\Game\\\\Bin\\\\TS3.exe"
+        else:
+            exe_target = f"{win_esc}\\\\{code}\\\\Game\\\\Bin\\\\{exe_file}"
 
-        # 1. Clave en Sims(Steam)
-        if ! grep -F -q "[Software\\Sims(Steam)\\$name]" "$SYSTEM_REG" 2>/dev/null; then
-            cat <<EOF >> "$SYSTEM_REG"
-
-[Software\\\\Sims(Steam)\\\\$name] $ts
+        for pfx in pfx_list:
+            content += f"""[{pfx}\\\\{name}] {ts}
+"ContentId"="{content_id}"
 "Country"="ES"
-"DisplayName"="$name"
-"ExePath"="$exe_target"
-"Install Dir"="$win_game_dir_esc\\\\$folder"
+"DisplayName"="{name}"
+"ErgcRegPath"="Electronic Arts\\\\Sims(Steam)\\\\{name}\\\\ergc"
+"ExePath"="{exe_target}"
+"Install Dir"="{win_esc}\\\\{code}"
 "Locale"="es-es"
-"ProductID"=dword:$(printf "%08x" "$prod_id")
+"ProductID"=dword:{prod_id:08x}
 "SKU"=dword:00000007
 "Telemetry"=dword:00000000
-EOF
-        fi
 
-        # 2. Clave en Wow6432Node\Sims(Steam)
-        if ! grep -F -q "[Software\\Wow6432Node\\Sims(Steam)\\$name]" "$SYSTEM_REG" 2>/dev/null; then
-            cat <<EOF >> "$SYSTEM_REG"
+"""
+        if is_system:
+            for ergc_pfx in [
+                "Software\\\\Electronic Arts\\\\Sims(Steam)",
+                "Software\\\\Wow6432Node\\\\Electronic Arts\\\\Sims(Steam)",
+                "Software\\\\Electronic Arts",
+                "Software\\\\Wow6432Node\\\\Electronic Arts"
+            ]:
+                content += f"""[{ergc_pfx}\\\\{name}\\\\ergc] {ts}
+@="{serial}"
 
-[Software\\\\Wow6432Node\\\\Sims(Steam)\\\\$name] $ts
-"Country"="ES"
-"DisplayName"="$name"
-"ExePath"="$exe_target"
-"Install Dir"="$win_game_dir_esc\\\\$folder"
-"Locale"="es-es"
-"ProductID"=dword:$(printf "%08x" "$prod_id")
-"SKU"=dword:00000007
-"Telemetry"=dword:00000000
-EOF
-        fi
+"""
 
-        # 3. Clave en Wow6432Node\Sims
-        if ! grep -F -q "[Software\\Wow6432Node\\Sims\\$name]" "$SYSTEM_REG" 2>/dev/null; then
-            cat <<EOF >> "$SYSTEM_REG"
-
-[Software\\\\Wow6432Node\\\\Sims\\\\$name] $ts
-"Country"="ES"
-"DisplayName"="$name"
-"ExePath"="$exe_target"
-"Install Dir"="$win_game_dir_esc\\\\$folder"
-"Locale"="es-es"
-"ProductID"=dword:$(printf "%08x" "$prod_id")
-"SKU"=dword:00000007
-"Telemetry"=dword:00000000
-EOF
-        fi
-
-        # 4. Clave en Electronic Arts y ergc (Serial)
-        if ! grep -F -q "[Software\\Wow6432Node\\Electronic Arts\\$name]" "$SYSTEM_REG" 2>/dev/null; then
-            cat <<EOF >> "$SYSTEM_REG"
-
-[Software\\\\Wow6432Node\\\\Electronic Arts\\\\$name] $ts
-"DisplayName"="$name"
-"Install Dir"="$win_game_dir_esc\\\\$folder"
-"Locale"="es-es"
-"ProductID"=dword:$(printf "%08x" "$prod_id")
-
-[Software\\\\Wow6432Node\\\\Electronic Arts\\\\$name\\\\ergc] $ts
-@="M7SS-S6H6-H3C8-W5X5-Y7R6"
-
-[Software\\\\Electronic Arts\\\\$name] $ts
-"DisplayName"="$name"
-"Install Dir"="$win_game_dir_esc\\\\$folder"
-"Locale"="es-es"
-"ProductID"=dword:$(printf "%08x" "$prod_id")
-
-[Software\\\\Electronic Arts\\\\$name\\\\ergc] $ts
-@="M7SS-S6H6-H3C8-W5X5-Y7R6"
-EOF
-        fi
-    done
-
-    # 5. Inyección de Steam Apps IDs en Wine (47891 a 47910)
-    for appid in {47891..47910}; do
-        if ! grep -F -q "[Software\\Wow6432Node\\Valve\\Steam\\Apps\\$appid]" "$SYSTEM_REG" 2>/dev/null; then
-            cat <<EOF >> "$SYSTEM_REG"
-
-[Software\\\\Wow6432Node\\\\Valve\\\\Steam\\\\Apps\\\\$appid] $ts
+    if is_system:
+        for appid in list(range(47891, 47911)) + [249180]:
+            for s_pfx in ["Software\\\\Valve\\\\Steam\\\\Apps", "Software\\\\Wow6432Node\\\\Valve\\\\Steam\\\\Apps"]:
+                content += f"""[{s_pfx}\\\\{appid}] {ts}
 "Installed"=dword:00000001
 
-[Software\\\\Valve\\\\Steam\\\\Apps\\\\$appid] $ts
-"Installed"=dword:00000001
-EOF
-        fi
-    done
+"""
 
-    # 6. Desbloqueo en el archivo appmanifest_47890.acf de Steam
+    with open(reg_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+clean_and_inject(system_reg, is_system=True)
+clean_and_inject(user_reg, is_system=False)
+
+# Enlace de mundos de expansiones (.world)
+base_worlds = os.path.join(sims_dir, "GameData", "Shared", "NonPackaged", "Worlds")
+installed_worlds = os.path.join(doc_ts3, "InstalledWorlds")
+os.makedirs(installed_worlds, exist_ok=True)
+os.makedirs(base_worlds, exist_ok=True)
+
+ep_worlds = glob.glob(os.path.join(sims_dir, "EP*", "GameData", "Shared", "NonPackaged", "Worlds", "*.world"))
+for w in ep_worlds:
+    bname = os.path.basename(w)
+    dest1 = os.path.join(base_worlds, bname)
+    dest2 = os.path.join(installed_worlds, bname)
+    if not os.path.exists(dest1):
+        try: os.symlink(w, dest1)
+        except Exception: pass
+    if not os.path.exists(dest2):
+        try: os.symlink(w, dest2)
+        except Exception: pass
+
+# Inyección de paquetes EP y SP en Resource.cfg
+for cfg_rel in ["GameData/Shared/Resource.cfg", "Game/Bin/Resource.cfg"]:
+    cfg_path = os.path.join(sims_dir, cfg_rel)
+    if os.path.isfile(cfg_path):
+        with open(cfg_path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+        if not any("EP01" in l for l in lines):
+            new_packed = []
+            for i in range(1, 12):
+                ep = f"EP{i:02d}"
+                new_packed.append(f"PackedFile ../../{ep}/GameData/Shared/Packages/FullBuild*.package\n")
+                new_packed.append(f"PackedFile ../../{ep}/GameData/Shared/Packages/DeltaBuild*.package\n")
+            for i in range(1, 10):
+                sp = f"SP{i:02d}"
+                new_packed.append(f"PackedFile ../../{sp}/GameData/Shared/Packages/FullBuild*.package\n")
+                new_packed.append(f"PackedFile ../../{sp}/GameData/Shared/Packages/DeltaBuild*.package\n")
+            out = []
+            inserted = False
+            for line in lines:
+                if "Thumbnails" in line and not inserted:
+                    out.extend(new_packed)
+                    inserted = True
+                out.append(line)
+            if not inserted:
+                out.extend(new_packed)
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                f.writelines(out)
+PYEOF
+
+    # Desbloqueo en el archivo appmanifest_47890.acf de Steam
     local acf_file="$STEAM_LIBRARY/steamapps/appmanifest_47890.acf"
     if [ -f "$acf_file" ] && ! grep -q '"dlcappid"' "$acf_file" 2>/dev/null; then
         echo -e "${P}Actualizando manifiesto de DLCs en Steam ($acf_file)..."
@@ -501,56 +731,6 @@ if "InstalledDepots" in c:
         f.write(c)
 ' "$acf_file" 2>/dev/null || true
     fi
-
-    # 7. Enlazar mundos de expansiones a GameData y Documents/InstalledWorlds
-    echo -e "${P}Enlazando mundos de expansiones (.world)..."
-    python3 -c '
-import os, glob, sys
-sims_dir = sys.argv[1]
-prefix = sys.argv[2]
-
-base_worlds = os.path.join(sims_dir, "GameData/Shared/NonPackaged/Worlds")
-installed_worlds = os.path.join(prefix, "drive_c/users/steamuser/Documents/Electronic Arts/The Sims 3/InstalledWorlds")
-os.makedirs(installed_worlds, exist_ok=True)
-os.makedirs(base_worlds, exist_ok=True)
-
-ep_worlds = glob.glob(os.path.join(sims_dir, "EP*/GameData/Shared/NonPackaged/Worlds/*.world"))
-for w in ep_worlds:
-    bname = os.path.basename(w)
-    dest1 = os.path.join(base_worlds, bname)
-    dest2 = os.path.join(installed_worlds, bname)
-    if not os.path.exists(dest1):
-        try: os.symlink(w, dest1)
-        except Exception: pass
-    if not os.path.exists(dest2):
-        try: os.symlink(w, dest2)
-        except Exception: pass
-
-# 8. Actualizar GameData/Shared/Resource.cfg para paquetes EP y SP
-cfg_path = os.path.join(sims_dir, "GameData/Shared/Resource.cfg")
-if os.path.isfile(cfg_path):
-    with open(cfg_path, "r") as f:
-        lines = f.readlines()
-    if not any("EP01" in l for l in lines):
-        new_packed = []
-        for i in range(1, 12):
-            ep = f"EP{i:02d}"
-            new_packed.append(f"PackedFile ../../{ep}/GameData/Shared/Packages/FullBuild*.package\n")
-            new_packed.append(f"PackedFile ../../{ep}/GameData/Shared/Packages/DeltaBuild*.package\n")
-        for i in range(1, 10):
-            sp = f"SP{i:02d}"
-            new_packed.append(f"PackedFile ../../{sp}/GameData/Shared/Packages/FullBuild*.package\n")
-            new_packed.append(f"PackedFile ../../{sp}/GameData/Shared/Packages/DeltaBuild*.package\n")
-        out = []
-        inserted = False
-        for line in lines:
-            if "Thumbnails" in line and not inserted:
-                out.extend(new_packed)
-                inserted = True
-            out.append(line)
-        with open(cfg_path, "w") as f:
-            f.writelines(out)
-' "$SIMS_DIR" "$PREFIX" 2>/dev/null || true
 
     echo -e "${P}\e[1;32m✔ Claves completas, mundos y paquetes inyectados exitosamente.\e[0m"
     echo -e "${P}Los Sims 3 Launcher y el motor del juego reconocerán todas las expansiones."
@@ -611,7 +791,9 @@ optimizar_rendimiento_ts3() {
 
     # 3. Configuración de pantalla nativa
     echo -e "\n${P}\e[1;34m[2/4] Configurando opciones del juego a 1080p Nativo @ 60 FPS...\e[0m"
-    local doc_options="$PREFIX/drive_c/users/steamuser/Documents/Electronic Arts/The Sims 3/Options.ini"
+    local doc_dir
+    doc_dir=$(obtener_ruta_documentos_ts3)
+    local doc_options="$doc_dir/Options.ini"
     if [ -f "$doc_options" ]; then
         sed -i 's/^resolution = .*/resolution = 1920 1080 60/g' "$doc_options" 2>/dev/null || echo "resolution = 1920 1080 60" >> "$doc_options"
         sed -i 's/^fullscreen = .*/fullscreen = 1/g' "$doc_options" 2>/dev/null || echo "fullscreen = 1" >> "$doc_options"
@@ -623,7 +805,10 @@ optimizar_rendimiento_ts3() {
     # 4. Auto-instalación de Parche de Estabilidad de Luva (Smooth Patch / wininet / ddraw)
     echo -e "\n${P}\e[1;34m[3/4] Comprobando Parche de Estabilidad (Smooth Patch / LazyDuchess)...\e[0m"
     local estabilidad_zip
-    estabilidad_zip=$(find "$HOME/Downloads" -maxdepth 2 -type f -iname "*estabilidad*sims*3*.zip" 2>/dev/null | head -n1)
+    estabilidad_zip=$(buscar_archivo_descarga "*estabilidad*sims*3*.zip")
+    if [ -z "$estabilidad_zip" ]; then
+        estabilidad_zip=$(buscar_archivo_descarga "*Smooth*Patch*.zip")
+    fi
     if [ -n "$estabilidad_zip" ]; then
         echo -e "${P}  Detectado '$estabilidad_zip'. Instalando en Game/Bin..."
         7z e "$estabilidad_zip" -o"$bin_dir" -y > /dev/null 2>&1
@@ -724,7 +909,8 @@ limpiar_cache_ts3() {
     echo -e "${P}\e[1;36m│\e[0m          \e[1;33m🧹 LIMPIADOR DE CACHÉ DE LOS SIMS 3\e[0m                  \e[1;36m│\e[0m"
     echo -e "${P}\e[1;36m╰──────────────────────────────────────────────────────────────╯\e[0m\n"
 
-    local doc_dir="$PREFIX/drive_c/users/steamuser/Documents/Electronic Arts/The Sims 3"
+    local doc_dir
+    doc_dir=$(obtener_ruta_documentos_ts3)
     if [ ! -d "$doc_dir" ]; then
         echo -e "${P}\e[1;33mAviso:\e[0m No se encontró la carpeta de documentos en:\n${P}$doc_dir\n"
         echo -ne "${P}Presiona Enter para continuar..."
@@ -1006,25 +1192,7 @@ while true; do
         8)
             configurar_rutas
             source "$CONFIG_FILE"
-            if [ -d "$STEAM_LIBRARY/steamapps/common/The Sims 3" ]; then
-                SIMS_DIR="$STEAM_LIBRARY/steamapps/common/The Sims 3"
-            elif [ -d "$STEAM_LIBRARY" ] && [[ "$STEAM_LIBRARY" =~ (The Sims 3|Los Sims 3) ]]; then
-                SIMS_DIR="$STEAM_LIBRARY"
-            else
-                SIMS_DIR="$STEAM_LIBRARY/steamapps/common/The Sims 3"
-            fi
-
-            if [ -f "$STEAM_COMPATDATA/system.reg" ] || [ -f "$STEAM_COMPATDATA/user.reg" ] || [ -d "$STEAM_COMPATDATA/drive_c" ]; then
-                PREFIX="$STEAM_COMPATDATA"
-            elif [ -d "$STEAM_COMPATDATA/pfx" ]; then
-                PREFIX="$STEAM_COMPATDATA/pfx"
-            elif [ -d "$STEAM_COMPATDATA/steamapps/compatdata/47890/pfx" ]; then
-                PREFIX="$STEAM_COMPATDATA/steamapps/compatdata/47890/pfx"
-            else
-                PREFIX="$STEAM_COMPATDATA"
-            fi
-            SYSTEM_REG="$PREFIX/system.reg"
-            USER_REG="$PREFIX/user.reg"
+            resolver_rutas_efectivas
             ;;
 
         9)
