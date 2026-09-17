@@ -11,7 +11,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 CONFIG_FILE="$HOME/.config/sims3_gestor.conf"
 UNLOCKER_STORE="$HOME/.local/share/sims3_unlocker"
 ICON_PATH="$HOME/.local/share/icons/fix-sims-3.svg"
-VERSION="2.1"
+VERSION="2.2"
 
 # --- UTILIDADES DE CENTRADO Y ESTILO TUI ---
 WIDTH=64
@@ -500,6 +500,24 @@ arreglar_estructura_dlcs_ts3() {
         mkdir -p "$doc_ts3/Mods"
         7z x "$mods_zip" -o"$doc_ts3" -y -bsp1
         echo -e "${P}  \e[1;32m✔\e[0m Mods de estabilidad (CleanUI, ld_SmoothPatch, Store) instalados en Documentos."
+    fi
+
+    # 5. Comprobar si el usuario descargó Worlds & Store Updates (Sims3Packs y Packages de Store)
+    local store_zip
+    store_zip=$(buscar_archivo_descarga "*Worlds*Store*Updates*.zip")
+    if [ -n "$store_zip" ] && [ -d "$doc_ts3" ]; then
+        echo -e "${P}Instalando Worlds & Store Updates (Sims3Packs y Fixes de Store)..."
+        mkdir -p "$doc_ts3/Downloads" "$doc_ts3/Mods/Packages"
+        
+        # Extraer .Sims3Pack a la carpeta Downloads del Launcher
+        echo -e "${P}  📦 Extrayendo Sims3Packs a: \e[36m$doc_ts3/Downloads\e[0m..."
+        7z e "$store_zip" -o"$doc_ts3/Downloads" "*.Sims3Pack" -r -y > /dev/null 2>&1
+        
+        # Extraer .package (como DV_BabyDragon_Fixes) a Mods/Packages
+        echo -e "${P}  📦 Extrayendo paquetes (.package) a: \e[36m$doc_ts3/Mods/Packages\e[0m..."
+        7z e "$store_zip" -o"$doc_ts3/Mods/Packages" "*.package" -r -y > /dev/null 2>&1
+        
+        echo -e "${P}  \e[1;32m✔\e[0m Worlds y Store Updates listos en Downloads y Mods/Packages."
     fi
 }
 
@@ -1034,6 +1052,36 @@ EOF
     read -r
 }
 
+# --- ABRIR CARPETA MODS DE LOS SIMS 3 ---
+abrir_carpeta_mods_ts3() {
+    clear
+    local P
+    P=$(obtener_padding)
+    echo -e "\n\n"
+    echo -e "${P}\e[1;36m╭──────────────────────────────────────────────────────────────╮\e[0m"
+    echo -e "${P}\e[1;36m│\e[0m            \e[1;33m📂 ABRIR CARPETA MODS (LOS SIMS 3)\e[0m                \e[1;36m│\e[0m"
+    echo -e "${P}\e[1;36m╰──────────────────────────────────────────────────────────────╯\e[0m\n"
+
+    local doc_ts3
+    doc_ts3=$(obtener_ruta_documentos_ts3)
+    local mods_dir="$doc_ts3/Mods"
+    mkdir -p "$mods_dir/Packages" "$mods_dir/Overrides"
+
+    echo -e "${P}Abriendo carpeta de Mods en el gestor de archivos..."
+    echo -e "${P}Ruta: \e[36m$mods_dir\e[0m\n"
+
+    if command -v xdg-open &> /dev/null; then
+        xdg-open "$mods_dir" >/dev/null 2>&1 &
+        echo -e "${P}\e[1;32m✔ ¡Carpeta de Mods abierta con éxito!\e[0m"
+    else
+        echo -e "${P}\e[1;33mNo se detectó xdg-open. Puedes acceder manualmente a la ruta:\e[0m"
+        echo -e "${P}\e[36m$mods_dir\e[0m"
+    fi
+
+    echo -ne "\n${P}Presiona Enter para volver al menú principal..."
+    read -r
+}
+
 # --- DIAGNÓSTICO DE DLCS E INTEGRIDAD ---
 diagnosticar_dlcs_ts3() {
     clear
@@ -1236,12 +1284,9 @@ mostrar_acerca_de_ts3() {
     echo -e "${P}  \e[1;37m• Compatibilidad:\e[0m \e[1;35mSteam, Steam Deck, Lutris, Bottles, Heroic, Wine\e[0m"
     echo -e "\n${P}\e[1;36m────────────────────────────────────────────────────────────────\e[0m"
     echo -e "${P}\e[1;33m📜 HISTORIAL DE CAMBIOS (CHANGELOG):\e[0m\n"
-    echo -e "${P}  \e[1;32m[v2.0] - Detección de Hardware, Gráficos VRAM, Menús TS4 & Luva Pack\e[0m"
-    echo -e "${P}    • 🎮 \e[1;37mDetección de Hardware:\e[0m Auto-detecta AMD, NVIDIA, Intel y RAM."
-    echo -e "${P}    • ⚡ \e[1;37mGraphicsRules Dinámico:\e[0m Asigna VRAM óptima (1GB, 2GB o 4GB)."
-    echo -e "${P}    • 🏝️  \e[1;37mIsla Paradiso Fix:\e[0m Parche anti-lag automático de mundo."
-    echo -e "${P}    • 📦 \e[1;37mMods.zip Auto-deploy:\e[0m CleanUI y SmoothPatch a Documentos."
-    echo -e "${P}    • 🎨 \e[1;37mMenús Idénticos a TS4:\e[0m Estilo TUI centrado con 9 opciones."
+    echo -e "${P}  \e[1;32m[v2.2] - Gestión Directa de Mods & Worlds Store Updates\e[0m"
+    echo -e "${P}    • 📂 \e[1;37mAbrir Carpeta Mods:\e[0m Acceso directo en el explorador de archivos nativo."
+    echo -e "${P}    • 🏛️  \e[1;37mWorlds & Store Updates:\e[0m Auto-descompresión de Sims3Packs y Packages."
     echo -e "${P}  \e[1;32m[v2.1] - Descargador de EA DLC Unlocker & Universalización de Rutas\e[0m"
     echo -e "${P}    • 🌐 \e[1;37mEA DLC Unlocker Auto:\e[0m Descarga verificada v3.5.0 con g_LOS SIMS 3.ini."
     echo -e "${P}    • 🔓 \e[1;37mDoble Soporte:\e[0m Inyección nativa Wine/Proton y soporte EA App/Origin."
@@ -1273,17 +1318,18 @@ while true; do
     echo -e "${P}  \e[1;33m[1]\e[0m 📦  \e[1;37mInstalar / Mover DLCs al juego\e[0m \e[2;37m(ZIP All-in-One, Sueltos, Lotes)\e[0m"
     echo -e "${P}  \e[1;33m[2]\e[0m 🔓  \e[1;37mActivar DLCs\e[0m \e[2;37m(Inyección Wine/Proton y EA App)\e[0m"
     echo -e "${P}  \e[1;33m[3]\e[0m ⚡  \e[1;37mOptimización de Gráficos & GPU\e[0m \e[2;37m(Auto-detectar Hardware & VRAM)\e[0m"
-    echo -e "${P}  \e[1;33m[4]\e[0m 🔍  \e[1;37mDiagnóstico de DLCs e Integridad\e[0m \e[2;37m(Health Check)\e[0m"
-    echo -e "${P}  \e[1;33m[5]\e[0m 🧹  \e[1;37mLimpiar Caché del Juego\e[0m \e[2;37m(Solución Carga Infinita)\e[0m"
-    echo -e "${P}  \e[1;33m[6]\e[0m 🌐  \e[1;37mDescargar / Actualizar EA DLC Unlocker\e[0m \e[2;37m(Auto)\e[0m"
-    echo -e "${P}  \e[1;33m[7]\e[0m 🖥️   \e[1;37mCrear Acceso Directo\e[0m \e[2;37m(.desktop / Steam Deck)\e[0m"
-    echo -e "${P}  \e[1;33m[8]\e[0m 🔪  \e[1;37mForzar cierre de procesos colgados\e[0m \e[2;37m(Fix Sims 3 / Steam / EA)\e[0m"
-    echo -e "${P}  \e[1;33m[9]\e[0m ⚙️   \e[1;37mReconfigurar rutas del script / Lanzador\e[0m"
-    echo -e "${P}  \e[1;33m[10]\e[0m ℹ️  \e[1;37mAcerca de & Changelog\e[0m"
+    echo -e "${P}  \e[1;33m[4]\e[0m 📂  \e[1;37mAbrir carpeta Mods del juego\e[0m \e[2;37m(Packages / CC / Mods)\e[0m"
+    echo -e "${P}  \e[1;33m[5]\e[0m 🔍  \e[1;37mDiagnóstico de DLCs e Integridad\e[0m \e[2;37m(Health Check)\e[0m"
+    echo -e "${P}  \e[1;33m[6]\e[0m 🧹  \e[1;37mLimpiar Caché del Juego\e[0m \e[2;37m(Solución Carga Infinita)\e[0m"
+    echo -e "${P}  \e[1;33m[7]\e[0m 🌐  \e[1;37mDescargar / Actualizar EA DLC Unlocker\e[0m \e[2;37m(Auto)\e[0m"
+    echo -e "${P}  \e[1;33m[8]\e[0m 🖥️   \e[1;37mCrear Acceso Directo\e[0m \e[2;37m(.desktop / Steam Deck)\e[0m"
+    echo -e "${P}  \e[1;33m[9]\e[0m 🔪  \e[1;37mForzar cierre de procesos colgados\e[0m \e[2;37m(Fix Sims 3 / Steam / EA)\e[0m"
+    echo -e "${P}  \e[1;33m[10]\e[0m ⚙️   \e[1;37mReconfigurar rutas del script / Lanzador\e[0m"
+    echo -e "${P}  \e[1;33m[11]\e[0m ℹ️  \e[1;37mAcerca de & Changelog\e[0m"
     echo -e "${P}  \e[1;31m[0]\e[0m 🚪  \e[1;37mSalir\e[0m"
     echo ""
     echo -e "${P}\e[1;36m────────────────────────────────────────────────────────────────\e[0m"
-    echo -ne "${P}\e[1;33m👉 Elige una opción (0-10):\e[0m "
+    echo -ne "${P}\e[1;33m👉 Elige una opción (0-11):\e[0m "
     read -r opcion
 
     case $opcion in
@@ -1381,32 +1427,36 @@ while true; do
             ;;
 
         4)
-            diagnosticar_dlcs_ts3
+            abrir_carpeta_mods_ts3
             ;;
 
         5)
-            limpiar_cache_ts3
+            diagnosticar_dlcs_ts3
             ;;
 
         6)
-            descargar_unlocker_auto
+            limpiar_cache_ts3
             ;;
 
         7)
-            crear_acceso_directo_ts3
+            descargar_unlocker_auto
             ;;
 
         8)
-            matar_procesos_colgados_ts3
+            crear_acceso_directo_ts3
             ;;
 
         9)
+            matar_procesos_colgados_ts3
+            ;;
+
+        10)
             configurar_rutas
             source "$CONFIG_FILE"
             resolver_rutas_efectivas
             ;;
 
-        10)
+        11)
             mostrar_acerca_de_ts3
             ;;
 
