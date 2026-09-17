@@ -11,12 +11,12 @@
 Abre tu terminal favorita en Linux o el modo escritorio de tu Steam Deck y ejecuta:
 
 ```bash
-curl -sSL https://tinyurl.com/fixsims3linux -o fix_ts3.sh && bash fix_ts3.sh
+curl -sSL https://tinyurl.com/fixsims3linux | bash
 ```
 
-> **💡 Consejo:** También puedes ejecutarlo directamente en memoria con:
+> **💡 Consejo:** Si prefieres descargarlo y guardarlo como archivo local:
 > ```bash
-> curl -sSL https://tinyurl.com/fixsims3linux | bash
+> curl -sSL https://tinyurl.com/fixsims3linux -o fix_ts3.sh && bash fix_ts3.sh
 > ```
 
 ---

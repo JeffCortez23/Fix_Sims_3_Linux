@@ -1292,10 +1292,9 @@ EOF_SVG
     mkdir -p "$APP_INSTALL_DIR"
     mkdir -p "$HOME/.local/share/applications"
 
-    if [ -f "$SCRIPT_FILE" ]; then
-        cp "$SCRIPT_FILE" "$INSTALLED_SCRIPT" 2>/dev/null || true
-    fi
-    if [ ! -f "$INSTALLED_SCRIPT" ]; then
+    if [ -f "$SCRIPT_FILE" ] && [ "$SCRIPT_FILE" != "$INSTALLED_SCRIPT" ] && [ "$(basename "$SCRIPT_FILE")" != "bash" ]; then
+        cp -f "$SCRIPT_FILE" "$INSTALLED_SCRIPT" 2>/dev/null || true
+    else
         curl -sSL "$RAW_URL" -o "$INSTALLED_SCRIPT" 2>/dev/null || true
     fi
     chmod +x "$INSTALLED_SCRIPT" 2>/dev/null || true
